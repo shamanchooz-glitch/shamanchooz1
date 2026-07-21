@@ -1,0 +1,17 @@
+{
+  "name": "Shaman Chooz Call Center",
+  "short_name": "Shaman Chooz",
+  "description": "Partagez votre position en toute confiance, appelez et discutez avec vos proches, en temps reel.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "minimal-ui",
+  "background_color": "#F6F5FA",
+  "theme_color": "#1B1730",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

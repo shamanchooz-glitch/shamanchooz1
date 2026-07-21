@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"/>
+<title>Shaman Chooz Call Center · Localisation &amp; Appels</title>
+<meta name="description" content="Partagez votre position en toute confiance, appelez et discutez avec vos proches, en temps reel."/>
+<link rel="manifest" href="manifest.json"/>
+<link rel="icon" href="icon-192.png"/>
+<link rel="apple-touch-icon" href="icon-192.png"/>
+<meta name="theme-color" content="#1B1730"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+:root{
+  --ink:#12101C; --ink2:#miss;
+  --bg:#F6F5FA; --panel:#FFFFFF; --panel2:#FAF9FF;
+  --line:#E7E4F3; --line2:#DCD8EF;
+  --txt:#1B1730; --txt2:#64607A; --txt3:#9490AC;
+  --indigo:#4A3AFF; --indigo-d:#372BD1; --indigo-pale:#EEEBFF;
+  --teal:#0EBFAE; --teal-d:#0A9E90; --teal-pale:#E3FBF8;
+  --amber:#FF9F1C; --amber-pale:#FFF3E0;
+  --rose:#FF5D8F; --rose-pale:#FFE9F0;
+  --ok:#1FAE6B; --err:#E5484D;
+  --radius:18px; --radius-sm:12px;
+  --shadow:0 8px 30px rgba(30,20,80,0.10);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,-apple-system,Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased;overscroll-behavior:none}
+button,input,select,textarea{font-family:inherit}
+a{color:inherit}
+.hidden{display:none!important}
+
+/* ===== SHELL ===== */
+#app{max-width:520px;margin:0 auto;min-height:100vh;background:var(--bg);position:relative;padding-bottom:118px}
+.topbar{position:sticky;top:0;z-index:200;background:rgba(255,255,255,0.92);backdrop-filter:blur(14px);border-bottom:1px solid var(--line);padding:14px 18px;display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:1.05rem;letter-spacing:-0.01em}
+.brand-mark{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--indigo),var(--teal));display:flex;align-items:center;justify-content:center;font-size:1.1rem;box-shadow:0 4px 14px rgba(74,58,255,0.35)}
+.topbar-right{display:flex;align-items:center;gap:5px;flex-wrap:nowrap}
+.topbar-right .icon-btn{width:34px;height:34px;font-size:0.95rem;flex-shrink:0}
+.topbar-right .status-pill{flex-shrink:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:78px}
+.status-pill{display:flex;align-items:center;gap:6px;font-size:0.72rem;font-weight:700;padding:6px 10px;border-radius:99px;background:var(--teal-pale);color:var(--teal-d)}
+.status-dot{width:7px;height:7px;border-radius:50%;background:var(--teal-d)}
+.status-pill.away{background:var(--amber-pale);color:#B96A00}
+.status-pill.away .status-dot{background:#B96A00}
+.icon-btn{width:38px;height:38px;border-radius:12px;border:1px solid var(--line);background:var(--panel);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1.05rem;color:var(--txt2)}
+
+.screen{display:none;padding:18px}
+.screen.active{display:block}
+
+/* ===== BOTTOM NAV ===== */
+.bottomnav{position:fixed;left:0;right:0;bottom:0;max-width:520px;margin:0 auto;background:rgba(255,255,255,0.97);backdrop-filter:blur(14px);border-top:1px solid var(--line);display:flex;z-index:300;padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
+.prevnextbar{position:fixed;left:0;right:0;bottom:64px;max-width:520px;margin:0 auto;display:flex;gap:8px;padding:0 10px;z-index:299}
+.pn-btn{flex:1;padding:9px 0;border-radius:99px;border:1px solid var(--line2);background:rgba(255,255,255,0.95);backdrop-filter:blur(10px);font-size:0.76rem;font-weight:700;color:var(--txt2);box-shadow:0 4px 14px rgba(0,0,0,0.08)}
+.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 2px;background:none;border:none;cursor:pointer;color:var(--txt3);font-size:0.66rem;font-weight:700;border-radius:12px;position:relative}
+.nav-btn .ni{font-size:1.25rem}
+.nav-btn.active{color:var(--indigo)}
+.nav-badge{position:absolute;top:2px;right:22%;background:var(--rose);color:#fff;font-size:0.6rem;font-weight:800;min-width:16px;height:16px;border-radius:99px;display:flex;align-items:center;justify-content:center;padding:0 3px}
+
+/* ===== CARDS / FORM ===== */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:14px;box-shadow:var(--shadow)}
+.card-h{font-weight:800;font-size:0.98rem;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.lbl{display:block;font-size:0.76rem;font-weight:700;color:var(--txt2);margin:12px 0 6px}
+.lbl:first-child{margin-top:0}
+.inp,.sel,.ta{width:100%;padding:13px 14px;border:1.5px solid var(--line2);border-radius:var(--radius-sm);font-size:0.94rem;background:var(--panel2);color:var(--txt);outline:none;transition:border-color .15s}
+.inp:focus,.sel:focus,.ta:focus{border-color:var(--indigo)}
+.ta{resize:vertical;min-height:80px}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:14px;border-radius:14px;border:none;font-weight:800;font-size:0.94rem;cursor:pointer;transition:transform .1s,opacity .15s}
+.btn:active{transform:scale(0.98)}
+.btn-primary{background:linear-gradient(135deg,var(--indigo),#6A5AFF);color:#fff;box-shadow:0 8px 22px rgba(74,58,255,0.32)}
+.btn-teal{background:linear-gradient(135deg,var(--teal),#17D6C4);color:#fff;box-shadow:0 8px 22px rgba(14,191,174,0.3)}
+.btn-ghost{background:var(--panel2);color:var(--txt);border:1.5px solid var(--line2)}
+.btn-danger{background:var(--err);color:#fff}
+.btn-sm{padding:9px 14px;border-radius:11px;font-size:0.78rem;font-weight:800;border:none;cursor:pointer}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.muted{color:var(--txt3);font-size:0.82rem}
+.center{text-align:center}
+
+.toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);background:#1B1730;color:#fff;padding:11px 18px;border-radius:99px;font-size:0.82rem;font-weight:700;z-index:9998;box-shadow:0 10px 30px rgba(0,0,0,0.25);max-width:88%;text-align:center;opacity:0;transition:opacity .2s}
+.toast.show{opacity:1}
+
+/* ===== AUTH ===== */
+.auth-wrap{padding:40px 22px;min-height:100vh;display:flex;flex-direction:column;justify-content:center}
+.auth-hero{text-align:center;margin-bottom:26px}
+.auth-hero .mark{width:64px;height:64px;border-radius:20px;background:linear-gradient(135deg,var(--indigo),var(--teal));display:flex;align-items:center;justify-content:center;font-size:1.8rem;margin:0 auto 14px;box-shadow:0 10px 30px rgba(74,58,255,0.35)}
+.auth-hero h1{font-size:1.5rem;margin:0 0 6px;letter-spacing:-0.02em}
+.auth-hero p{color:var(--txt2);font-size:0.9rem;margin:0}
+.pay-zone-card{border:2px solid var(--line2);border-radius:14px;padding:14px 10px;text-align:center;font-weight:700;font-size:0.85rem;cursor:pointer;color:var(--txt2)}
+.pay-zone-card.active{border-color:var(--teal);background:var(--teal-pale);color:var(--teal-d)}
+.amount-chip-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.amount-chip{padding:11px 0;border-radius:11px;border:1.5px solid var(--line2);background:var(--panel2);font-weight:700;font-size:0.82rem;color:var(--indigo);cursor:pointer}
+.operator-card{display:flex;align-items:center;gap:12px;padding:12px;border:1.5px solid var(--line2);border-radius:14px;margin-bottom:9px;cursor:pointer}
+.operator-card.selected{border-color:var(--indigo);background:var(--indigo-pale)}
+.op-badge{width:38px;height:38px;border-radius:10px;color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:0.85rem}
+.op-radio{width:20px;height:20px;border-radius:50%;border:2px solid var(--line2);flex-shrink:0}
+.operator-card.selected .op-radio{border-color:var(--indigo);background:radial-gradient(var(--indigo) 0%,var(--indigo) 40%,transparent 45%)}
+.pay-summary-row{display:flex;justify-content:space-between;padding:7px 0;font-size:0.88rem}
+.amount-info-box{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px;text-align:center}
+.pwd-wrap{position:relative}
+.pwd-wrap .inp{padding-right:46px}
+.pwd-eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;font-size:1.1rem;cursor:pointer;padding:8px;opacity:0.6}
+.pwd-eye.on{opacity:1}
+.auth-tabs{display:flex;background:var(--panel2);border-radius:14px;padding:4px;margin-bottom:18px}
+.auth-tab{flex:1;text-align:center;padding:10px;border-radius:11px;font-weight:800;font-size:0.85rem;cursor:pointer;color:var(--txt3)}
+.auth-tab.active{background:var(--panel);color:var(--indigo);box-shadow:0 3px 10px rgba(0,0,0,0.06)}
+
+/* ===== MAP ===== */
+#map{width:100%;height:calc(100vh - 260px);min-height:360px;border-radius:var(--radius);overflow:hidden;border:1px solid var(--line)}
+.map-wrap{padding:0}
+.map-container{position:relative}
+.map-layer-switch{position:absolute;top:12px;right:12px;z-index:500;display:flex;flex-direction:column;gap:6px;background:rgba(255,255,255,0.96);padding:6px;border-radius:12px;box-shadow:0 4px 14px rgba(0,0,0,0.18)}
+.map-layer-btn{padding:8px 12px;border-radius:9px;border:1.5px solid var(--line2);background:var(--panel2);font-size:0.72rem;font-weight:700;color:var(--txt2);cursor:pointer;white-space:nowrap;text-align:left}
+.map-layer-btn.active{background:var(--indigo);color:#fff;border-color:var(--indigo)}
+.map-topcard{margin:18px}
+.share-toggle{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.switch{position:relative;width:48px;height:28px;flex-shrink:0}
+.switch input{opacity:0;width:0;height:0}
+.switch-track{position:absolute;inset:0;background:#D9D6EA;border-radius:99px;cursor:pointer;transition:.2s}
+.switch-track:before{content:'';position:absolute;width:22px;height:22px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s;box-shadow:0 2px 6px rgba(0,0,0,0.25)}
+.switch input:checked + .switch-track{background:var(--teal)}
+.switch input:checked + .switch-track:before{transform:translateX(20px)}
+.map-legend{padding:14px 18px 0}
+.contact-pin-row{display:flex;align-items:center;gap:12px;padding:12px;background:var(--panel);border:1px solid var(--line);border-radius:14px;margin-bottom:9px;cursor:pointer}
+.avatar{width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--indigo),var(--teal));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;flex-shrink:0;object-fit:cover;font-size:1rem}
+.pin-info{flex:1;min-width:0}
+.pin-name{font-weight:800;font-size:0.9rem}
+.pin-sub{font-size:0.74rem;color:var(--txt3)}
+.live-dot{width:8px;height:8px;border-radius:50%;background:var(--ok);display:inline-block;margin-right:5px;box-shadow:0 0 0 3px rgba(31,174,107,0.18)}
+
+/* ===== CONTACTS ===== */
+.dialpad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
+.dialpad-key{padding:16px 0;border-radius:14px;border:1.5px solid var(--line2);background:var(--panel2);font-size:1.2rem;font-weight:700;cursor:pointer;color:var(--txt)}
+.dialpad-key:active{background:var(--indigo-pale)}
+.tab-row{display:flex;gap:6px;margin-bottom:14px;overflow-x:auto}
+.tab-chip{padding:8px 14px;border-radius:99px;border:1.5px solid var(--line2);background:var(--panel);font-size:0.78rem;font-weight:700;color:var(--txt2);white-space:nowrap;cursor:pointer}
+.tab-chip.active{background:var(--indigo);color:#fff;border-color:var(--indigo)}
+.contact-row{display:flex;align-items:center;gap:12px;padding:13px;background:var(--panel);border:1px solid var(--line);border-radius:14px;margin-bottom:9px}
+.contact-acts{display:flex;gap:6px}
+.ic-btn{width:38px;height:38px;border-radius:11px;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1rem}
+.ic-call{background:var(--teal-pale);color:var(--teal-d)}
+.ic-video{background:var(--indigo-pale);color:var(--indigo)}
+.ic-msg{background:var(--amber-pale);color:#B96A00}
+.empty-state{text-align:center;padding:50px 20px;color:var(--txt3)}
+.empty-state .e-ic{font-size:2.6rem;margin-bottom:10px}
+
+/* ===== CALLS ===== */
+.call-log-row{display:flex;align-items:center;gap:12px;padding:12px 4px;border-bottom:1px solid var(--line)}
+.call-log-row:last-child{border-bottom:none}
+.call-dir{font-size:0.72rem;font-weight:700}
+.call-dir.in{color:var(--ok)}
+.call-dir.out{color:var(--indigo)}
+.call-dir.missed{color:var(--err)}
+
+#modal-incoming,#modal-call,#modal-mixed{display:none;position:fixed;inset:0;background:linear-gradient(160deg,#1B1730,#372BD1 130%);z-index:9500;flex-direction:column;align-items:center;justify-content:space-between;padding:50px 26px 40px;color:#fff}
+#modal-incoming.open,#modal-call.open{display:flex}
+.call-avatar-big{width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;font-size:2.6rem;font-weight:800;margin-bottom:18px;border:3px solid rgba(255,255,255,0.25)}
+.call-name-big{font-size:1.4rem;font-weight:800;margin-bottom:6px}
+.call-status-txt{opacity:0.8;font-size:0.92rem}
+.call-btns-row{display:flex;gap:34px;align-items:center}
+.call-round-btn{width:66px;height:66px;border-radius:50%;border:none;cursor:pointer;font-size:1.5rem;display:flex;align-items:center;justify-content:center;color:#fff}
+.call-accept{background:var(--ok)}
+.call-decline{background:var(--err)}
+.call-ctrl-row{display:flex;gap:18px;justify-content:center;flex-wrap:wrap}
+.call-ctrl-btn{width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,0.14);border:none;cursor:pointer;font-size:1.2rem;color:#fff;display:flex;align-items:center;justify-content:center}
+.call-ctrl-btn.on{background:#fff;color:var(--indigo-d)}
+#local-video,#remote-video{border-radius:20px;background:#000;width:100%;object-fit:cover}
+#remote-video{position:absolute;inset:0;width:100%;height:100%;border-radius:0}
+#local-video{position:absolute;bottom:120px;right:18px;width:110px;height:150px;z-index:2;box-shadow:0 8px 24px rgba(0,0,0,0.4)}
+.video-stage{position:absolute;inset:0}
+
+/* ===== MESSAGES ===== */
+.convo-row{display:flex;align-items:center;gap:12px;padding:13px;background:var(--panel);border:1px solid var(--line);border-radius:14px;margin-bottom:9px;cursor:pointer}
+.convo-last{font-size:0.8rem;color:var(--txt3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+.chat-screen{display:flex;flex-direction:column;height:100vh;height:100dvh;position:fixed;inset:0;background:var(--bg);z-index:600;display:none}
+.chat-screen.open{display:flex}
+.chat-hdr{display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+.chat-body{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px}
+.bubble{max-width:76%;padding:11px 14px;border-radius:16px;margin-bottom:8px;font-size:0.88rem;line-height:1.4;width:fit-content}
+.bubble.me{background:var(--indigo);color:#fff;margin-left:auto;border-bottom-right-radius:4px}
+.bubble.them{background:var(--panel);border:1px solid var(--line);border-bottom-left-radius:4px}
+.bubble.auto{background:var(--amber-pale);border:1px solid #FFE0B2;color:#7A4A00}
+.bubble-time{font-size:0.62rem;opacity:0.6;margin-top:3px}
+.chat-input-row{flex-shrink:0;display:flex;gap:8px;padding:12px 14px;background:var(--panel);border-top:1px solid var(--line);padding-bottom:calc(12px + env(safe-area-inset-bottom))}
+.chat-input-row .inp{border-radius:22px}
+.round-send{width:46px;height:46px;border-radius:50%;background:var(--indigo);color:#fff;border:none;flex-shrink:0;cursor:pointer;font-size:1.1rem}
+
+/* ===== SETTINGS ===== */
+.settings-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 0;border-bottom:1px solid var(--line)}
+.settings-row:last-child{border-bottom:none}
+.settings-row-txt b{display:block;font-size:0.9rem}
+.settings-row-txt span{font-size:0.76rem;color:var(--txt3)}
+
+/* ===== MODAL GENERIC ===== */
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(18,16,28,0.55);z-index:8200;align-items:flex-end;justify-content:center}
+.modal-bg.open{display:flex}
+.modal-sheet{background:var(--panel);width:100%;max-width:520px;border-radius:22px 22px 0 0;padding:22px;max-height:86vh;overflow-y:auto}
+.modal-handle{width:40px;height:4px;background:var(--line2);border-radius:99px;margin:0 auto 16px}
+
+.rec-badge{position:absolute;top:50px;left:18px;background:var(--err);color:#fff;font-size:0.7rem;font-weight:800;padding:5px 10px;border-radius:99px;display:flex;align-items:center;gap:5px;z-index:3}
+.rec-dot{width:7px;height:7px;background:#fff;border-radius:50%;animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+
+#print-area{display:none}
+@media print{
+  body *{visibility:hidden}
+  #print-area, #print-area *{visibility:visible}
+  #print-area{display:block;position:absolute;top:0;left:0;width:100%;padding:20px}
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ============ AUTH ============ -->
+  <div id="scr-auth" class="screen active">
+    <div class="auth-wrap">
+      <div class="auth-hero">
+        <div class="mark" id="auth-logo-fallback">📍</div>
+        <img id="auth-logo-img" class="hidden" style="width:64px;height:64px;border-radius:20px;object-fit:cover;margin:0 auto 14px;box-shadow:0 10px 30px rgba(74,58,255,0.35)"/>
+        <h1>Shaman Chooz Call Center</h1>
+        <p>Localisation, appels et messages entre personnes qui se font confiance</p>
+      </div>
+      <div class="auth-tabs">
+        <div class="auth-tab active" id="tab-login" onclick="switchAuthTab('login')">Connexion</div>
+        <div class="auth-tab" id="tab-register" onclick="switchAuthTab('register')">Inscription</div>
+      </div>
+
+      <div id="pane-login">
+        <label class="lbl">Pseudo ou telephone</label>
+        <input class="inp" id="lg-pseudo" placeholder="Ex: kevin_ab"/>
+        <label class="lbl">Mot de passe</label>
+        <div class="pwd-wrap">
+          <input class="inp" id="lg-mdp" type="password" placeholder="Votre mot de passe"/>
+          <button type="button" class="pwd-eye" onclick="togglePwd('lg-mdp',this)">👁️</button>
+        </div>
+        <button class="btn btn-primary" style="margin-top:18px" onclick="doLogin()">Se connecter</button>
+      </div>
+
+      <div id="pane-register" class="hidden">
+        <label class="lbl">Nom complet</label>
+        <input class="inp" id="rg-nom" placeholder="Ex: Awa Kone"/>
+        <label class="lbl">Pseudo</label>
+        <input class="inp" id="rg-pseudo" placeholder="Ex: awa_ci"/>
+        <label class="lbl">Telephone</label>
+        <input class="inp" id="rg-tel" type="tel" placeholder="+225 07 00 00 00 00"/>
+        <label class="lbl">Mot de passe</label>
+        <div class="pwd-wrap">
+          <input class="inp" id="rg-mdp" type="password" placeholder="Minimum 6 caracteres"/>
+          <button type="button" class="pwd-eye" onclick="togglePwd('rg-mdp',this)">👁️</button>
+        </div>
+        <button class="btn btn-primary" style="margin-top:18px" onclick="doRegister()">Creer mon compte</button>
+        <p class="muted center" style="margin-top:12px">En creant un compte vous acceptez que votre position ne soit jamais visible par un autre membre tant que vous n'avez pas accepte sa demande.</p>
+      </div>
+
+      <button class="btn btn-ghost" type="button" style="margin-top:20px" onclick="openAdminLogin()">🔐 Espace administrateur</button>
+      <button class="btn btn-ghost" style="margin-top:12px" onclick="attemptQuitApp()">🚪 Quitter</button>
+    </div>
+  </div>
+
+  <!-- ============ PAYWALL (activation par paiement) ============ -->
+  <div id="scr-paywall" class="hidden" style="overflow-y:auto;height:100vh">
+    <div style="padding:20px;max-width:520px;margin:0 auto">
+      <div class="auth-hero" style="margin-bottom:18px">
+        <div class="mark">💳</div>
+        <h1 style="font-size:1.25rem">Paiement Frais d'Activation</h1>
+        <p>Paiement securise — Cote d'Ivoire et International</p>
+      </div>
+
+      <!-- Choix zone -->
+      <div class="card">
+        <div class="lbl" style="margin-top:0">Choisir votre methode de paiement</div>
+        <div class="row2">
+          <div class="pay-zone-card active" id="zone-ci" onclick="setPayZone('ci')">🇨🇮 Cote d'Ivoire<br/><span class="muted" style="font-size:0.74rem">Mobile Money</span></div>
+          <div class="pay-zone-card" id="zone-intl" onclick="setPayZone('intl')">🌍 International<br/><span class="muted" style="font-size:0.74rem">Wave / WorldRemit / WU</span></div>
+        </div>
+      </div>
+
+      <!-- ===== ZONE COTE D'IVOIRE ===== -->
+      <div id="pay-pane-ci">
+        <div class="card">
+          <div class="lbl" style="margin-top:0">1. Montant a payer</div>
+          <div style="display:flex;align-items:center;gap:8px;border:2px solid var(--amber);border-radius:14px;padding:14px">
+            <input class="inp" id="pay-amount-ci" value="5000" style="border:none;background:transparent;padding:0;font-size:1.5rem;font-weight:800" oninput="updatePaySummary()"/>
+            <span style="font-weight:700;color:var(--txt2)">F CFA</span>
+          </div>
+          <p class="muted" style="margin:8px 0 10px">Entre 1 000 et 50 000 F CFA</p>
+          <div class="amount-chip-grid">
+            <button type="button" class="amount-chip" onclick="setAmountCi(1000)">1 000 F</button>
+            <button type="button" class="amount-chip" onclick="setAmountCi(2500)">2 500 F</button>
+            <button type="button" class="amount-chip" onclick="setAmountCi(5000)">5 000 F</button>
+            <button type="button" class="amount-chip" onclick="setAmountCi(10000)">10 000 F</button>
+            <button type="button" class="amount-chip" onclick="setAmountCi(25000)">25 000 F</button>
+            <button type="button" class="amount-chip" onclick="setAmountCi(50000)">50 000 F</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="lbl" style="margin-top:0">2. Choisir votre operateur</div>
+          <div class="operator-card" data-op="wave" onclick="setOperator('wave')">
+            <div class="op-badge" style="background:#00D4C8">W</div>
+            <div class="pin-info"><b>Wave</b><div class="muted" style="font-size:0.78rem">Payer au : +225 07 48 93 56 86</div></div>
+            <div class="op-radio"></div>
+          </div>
+          <div class="operator-card" data-op="mtn" onclick="setOperator('mtn')">
+            <div class="op-badge" style="background:#FFCB05;color:#222">M</div>
+            <div class="pin-info"><b>MTN Mobile Money</b><div class="muted" style="font-size:0.78rem">Payer au : +225 05 74 53 36 36</div></div>
+            <div class="op-radio"></div>
+          </div>
+          <div class="operator-card" data-op="moov" onclick="setOperator('moov')">
+            <div class="op-badge" style="background:#0B4EA2">MV</div>
+            <div class="pin-info"><b>Moov Money</b><div class="muted" style="font-size:0.78rem">Payer au : +225 01 73 77 39 39</div></div>
+            <div class="op-radio"></div>
+          </div>
+          <div class="operator-card" data-op="orange" onclick="setOperator('orange')">
+            <div class="op-badge" style="background:#FF7900">OM</div>
+            <div class="pin-info"><b>Orange Money</b><div class="muted" style="font-size:0.78rem">Payer au : +225 07 49 97 09 18</div></div>
+            <div class="op-radio"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="lbl" style="margin-top:0">3. Votre numero Mobile Money</div>
+          <div style="display:flex;gap:8px">
+            <div style="border:1.5px solid var(--amber);border-radius:12px;padding:13px 12px;font-weight:700">+225</div>
+            <input class="inp" id="pay-mynumber-ci" placeholder="07 00 00 00 00" oninput="updatePaySummary()" style="flex:1"/>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="lbl" style="margin-top:0">Resume</div>
+          <div class="pay-summary-row"><span class="muted">Beneficiaire</span><b id="sum-benef">Shaman Chooz Call Center</b></div>
+          <div class="pay-summary-row"><span class="muted">Operateur</span><b id="sum-operator">--</b></div>
+          <div class="pay-summary-row"><span class="muted">Votre numero</span><b id="sum-number">--</b></div>
+          <div class="pay-summary-row" style="border-top:1px solid var(--line);padding-top:10px;margin-top:4px"><span style="font-weight:800">Montant</span><b id="sum-amount" style="color:var(--amber);font-size:1.1rem">5 000 F</b></div>
+        </div>
+
+        <button class="btn btn-primary" id="btn-show-ci-instructions" onclick="showCiInstructions()">Voir les instructions de paiement</button>
+
+        <div id="ci-instructions-block" class="hidden">
+          <div class="card" style="border:1.5px solid var(--teal)">
+            <div class="lbl" style="margin-top:0">Instructions</div>
+            <p style="font-size:0.88rem;line-height:1.6">
+              1. Ouvrez votre application <b id="ci-op-name">Wave</b><br/>
+              2. Envoyez <b id="ci-op-amount">5 000 F CFA</b> au numero <b id="ci-op-number">+225 07 48 93 56 86</b><br/>
+              3. Notez la reference de la transaction recue par SMS<br/>
+              4. Entrez-la ci-dessous pour activer votre compte immediatement
+            </p>
+          </div>
+          <div class="card">
+            <label class="lbl" style="margin-top:0">Reference / Code de transaction recu</label>
+            <input class="inp" id="pay-ref-ci" placeholder="Ex: WAVE-2938-XXXX" style="font-weight:700"/>
+            <p class="muted" style="margin-top:6px">Astuce : si vous avez paye depuis ce meme telephone, vous pouvez copier-coller la reference recue par SMS.</p>
+            <button class="btn btn-teal" style="margin-top:14px" onclick="submitPaymentCi()">✓ Valider et activer mon compte</button>
+          </div>
+        </div>
+        <button class="btn btn-ghost hidden" id="btn-back-ci" onclick="hideCiInstructions()" style="margin-top:10px">← Retour au formulaire</button>
+      </div>
+
+      <!-- ===== ZONE INTERNATIONAL ===== -->
+      <div id="pay-pane-intl" class="hidden">
+        <div class="card">
+          <div class="lbl" style="margin-top:0">Montant des frais</div>
+          <div class="row2">
+            <div class="amount-info-box"><span class="muted" style="font-size:0.76rem">Afrique (F CFA)</span><br/><b style="font-size:1.3rem;color:var(--teal-d)">5 000 F</b></div>
+            <div class="amount-info-box"><span class="muted" style="font-size:0.76rem">Europe / Monde</span><br/><b style="font-size:1.3rem;color:var(--indigo)">8 EUR / 9 USD</b></div>
+          </div>
+          <p class="muted" style="margin-top:10px;background:var(--amber-pale);padding:10px;border-radius:10px;color:#7A4A00">Important : le taux de change est indicatif. Le montant exact en votre devise sera calcule au moment du transfert par votre service de paiement.</p>
+        </div>
+
+        <div class="card" style="border:1.5px solid #7ED9C9">
+          <div class="lbl" style="margin-top:0;color:#0A9E90">Option 1 — Wave (Afrique de l'Ouest)</div>
+          <p style="font-size:0.85rem;line-height:1.7">
+            1. Telechargez l'app <b>Wave</b> sur votre telephone<br/>
+            2. Creez un compte Wave dans votre pays<br/>
+            3. Envoyez directement au numero : <b>+225 07 48 93 56 86</b><br/>
+            4. Objet : <i>Frais d'activation + votre nom</i>
+          </p>
+          <p class="muted">Disponible : Senegal, Mali, Burkina, Guinee, Cameroun...</p>
+        </div>
+
+        <div class="card" style="border:1.5px solid var(--indigo-pale)">
+          <div class="lbl" style="margin-top:0;color:var(--indigo)">Option 2 — WorldRemit (Europe, USA, Canada, Monde)</div>
+          <p style="font-size:0.85rem;line-height:1.7">
+            1. Allez sur <b>worldremit.com</b> ou telechargez l'app WorldRemit<br/>
+            2. Choisissez <b>Cote d'Ivoire</b> comme destination<br/>
+            3. Choisissez <b>Mobile Money — Wave</b><br/>
+            4. Entrez le numero : <b>+225 07 48 93 56 86</b><br/>
+            5. Payez en euros, dollars ou votre devise locale
+          </p>
+          <p class="muted">Disponible dans plus de 50 pays</p>
+        </div>
+
+        <div class="card" style="border:1.5px solid #F0D98C">
+          <div class="lbl" style="margin-top:0;color:#B8860B">Option 3 — Western Union (Tous pays du monde)</div>
+          <p style="font-size:0.85rem;line-height:1.7">
+            1. Allez dans une agence <b>Western Union</b> de votre ville<br/>
+            2. Dites : <i>Envoyer vers Cote d'Ivoire</i><br/>
+            3. Nom du beneficiaire : <b>voir avec l'administrateur</b><br/>
+            4. Telephone : <b>+225 07 48 93 56 86</b><br/>
+            5. Vous recevrez un <b>code MTCN</b> a noter absolument
+          </p>
+          <p class="muted">Disponible dans presque tous les pays du monde</p>
+        </div>
+
+        <div class="card" style="border:1.5px solid #D9C6F0">
+          <div class="lbl" style="margin-top:0;color:#7B4FC2">Option 4 — Wise (Europe principalement)</div>
+          <p style="font-size:0.85rem;line-height:1.7">
+            1. Allez sur <b>wise.com</b><br/>
+            2. Choisissez <b>Envoyer vers Cote d'Ivoire</b><br/>
+            3. Choisissez <b>Mobile Money</b><br/>
+            4. Entrez le numero : <b>+225 07 48 93 56 86</b>
+          </p>
+          <p class="muted">Taux de change excellent, frais reduits</p>
+        </div>
+
+        <div class="card">
+          <div class="lbl" style="margin-top:0">Votre reference de paiement international</div>
+          <p class="muted">Apres avoir effectue le paiement, entrez ici la reference de transaction recue (code MTCN Western Union, reference WorldRemit, reference Wave, etc.)</p>
+          <label class="lbl">Methode de paiement utilisee</label>
+          <select class="sel" id="pay-method-intl">
+            <option value="Wave">Wave</option>
+            <option value="WorldRemit">WorldRemit</option>
+            <option value="Western Union">Western Union</option>
+            <option value="Wise">Wise</option>
+          </select>
+          <label class="lbl">Montant envoye (avec devise)</label>
+          <input class="inp" id="pay-amount-intl" placeholder="Ex: 8 EUR ou 9 USD ou 5000 XOF"/>
+          <label class="lbl">Reference / Code de transaction</label>
+          <input class="inp" id="pay-ref-intl" placeholder="Ex: MTCN: 123456789 OU REF"/>
+          <button class="btn btn-teal" style="margin-top:16px" onclick="submitPaymentIntl()">Valider mon paiement international</button>
+        </div>
+      </div>
+
+      <div id="pay-status-box" class="hidden" style="margin:14px 0;padding:12px;border-radius:12px;background:var(--amber-pale);color:#7A4A00;font-size:0.85rem"></div>
+      <button class="btn btn-ghost" style="margin-bottom:10px" onclick="doLogout()">Se deconnecter</button>
+      <button class="btn btn-ghost" style="margin-bottom:30px" onclick="attemptQuitApp()">🚪 Quitter</button>
+    </div>
+  </div>
+
+  <!-- ============ APP SHELL ============ -->
+  <div id="scr-app" class="hidden">
+    <div class="topbar">
+      <div class="brand"><img id="brand-logo-img" class="brand-mark hidden" style="object-fit:cover;cursor:pointer" onclick="openLogoFull()"/><div class="brand-mark" id="brand-logo-fallback" onclick="openLogoFull()" style="cursor:pointer">📍</div><span>Shaman Chooz</span></div>
+      <div class="topbar-right">
+        <button class="icon-btn" onclick="goScreen('map')" aria-label="Accueil" title="Accueil">🏠</button>
+        <div class="status-pill" id="my-status-pill" onclick="goScreen('settings')">
+          <span class="status-dot"></span><span id="my-status-txt">Disponible</span>
+        </div>
+        <button class="icon-btn" onclick="goScreen('settings')" aria-label="Reglages">⚙️</button>
+        <button class="icon-btn" onclick="confirmLogout()" aria-label="Deconnexion" title="Deconnexion">⎋</button>
+        <button class="icon-btn" onclick="attemptQuitApp()" aria-label="Quitter" title="Quitter">⏻</button>
+      </div>
+    </div>
+
+    <!-- ---- MAP ---- -->
+    <div id="scr-map" class="screen active map-wrap">
+      <div class="map-topcard card">
+        <div class="share-toggle">
+          <div>
+            <b style="font-size:0.92rem">Partager ma position en direct</b>
+            <div class="muted" id="share-sub">Desactive — personne ne vous voit</div>
+          </div>
+          <label class="switch"><input type="checkbox" id="chk-share" onchange="toggleShareLocation(this.checked)"/><span class="switch-track"></span></label>
+        </div>
+      </div>
+      <div class="map-container" style="margin:0 18px 14px">
+        <div id="map"></div>
+        <div class="map-layer-switch" id="map-layer-switch">
+          <button type="button" class="map-layer-btn active" data-view="default" onclick="setMainMapView('default')">🗺️ Defaut</button>
+          <button type="button" class="map-layer-btn" data-view="satellite" onclick="setMainMapView('satellite')">🛰️ Satellite</button>
+          <button type="button" class="map-layer-btn" data-view="terrain" onclick="setMainMapView('terrain')">⛰️ Relief</button>
+        </div>
+      </div>
+      <div class="map-legend" id="contacts-on-map"></div>
+    </div>
+
+    <!-- ---- CONTACTS ---- -->
+    <div id="scr-contacts" class="screen">
+      <div class="search-bar">
+        <input class="inp" id="search-input" placeholder="Nom, pseudo, telephone ou email..." oninput="onSearchInput()"/>
+      </div>
+      <div id="search-results"></div>
+
+      <button class="btn btn-ghost" style="margin-bottom:14px" onclick="importFromPhoneContacts()">📇 Importer depuis les contacts de mon telephone</button>
+
+      <div class="tab-row">
+        <div class="tab-chip active" data-t="accepted" onclick="setContactTab('accepted',this)">Mes proches</div>
+        <div class="tab-chip" data-t="pending-in" onclick="setContactTab('pending-in',this)">Demandes recues</div>
+        <div class="tab-chip" data-t="pending-out" onclick="setContactTab('pending-out',this)">En attente</div>
+        <div class="tab-chip" data-t="external" onclick="setContactTab('external',this)">Numeros telephone</div>
+      </div>
+      <div id="contacts-list"></div>
+    </div>
+
+    <!-- ---- STATUTS ---- -->
+    <div id="scr-statuses" class="screen">
+      <div class="card" onclick="openStatusCreate()" style="cursor:pointer;display:flex;align-items:center;gap:12px">
+        <div class="avatar" id="mystatus-avatar" style="background:linear-gradient(135deg,var(--amber),#FFC24D)">+</div>
+        <div>
+          <b style="font-size:0.9rem">Ajouter un statut</b>
+          <div class="muted" style="font-size:0.76rem">Visible 24h par vos proches acceptes</div>
+        </div>
+      </div>
+      <div id="statuses-list"></div>
+    </div>
+
+    <!-- ---- CALLS ---- -->
+    <div id="scr-calls" class="screen">
+      <div class="card">
+        <div class="card-h">📞 Historique des appels</div>
+        <div id="call-log"></div>
+      </div>
+    </div>
+
+    <!-- ---- MESSAGES ---- -->
+    <div id="scr-messages" class="screen">
+      <div id="convo-list"></div>
+    </div>
+
+    <!-- ---- SETTINGS ---- -->
+    <div id="scr-settings" class="screen">
+      <div class="card">
+        <div class="card-h">👤 Mon profil</div>
+        <div class="center" style="margin-bottom:14px">
+          <div style="position:relative;display:inline-block">
+            <div class="avatar" id="me-avatar" style="width:90px;height:90px;font-size:2rem;object-fit:cover"></div>
+            <label for="profile-photo-camera" title="Prendre une photo" style="position:absolute;bottom:0;right:26px;width:32px;height:32px;border-radius:50%;background:var(--indigo);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;border:3px solid #fff;font-size:0.85rem">📷</label>
+            <label for="profile-photo-gallery" title="Depuis la galerie" style="position:absolute;bottom:0;right:-6px;width:32px;height:32px;border-radius:50%;background:var(--teal);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;border:3px solid #fff;font-size:0.85rem">🖼️</label>
+            <input type="file" accept="image/*" capture="environment" id="profile-photo-camera" class="hidden"/>
+            <input type="file" accept="image/*" id="profile-photo-gallery" class="hidden"/>
+          </div>
+          <div style="font-weight:800;margin-top:10px" id="me-nom"></div>
+          <div class="muted" id="me-pseudo"></div>
+        </div>
+        <label class="lbl">Nom affiche</label>
+        <input class="inp" id="set-nom"/>
+        <label class="lbl">Telephone</label>
+        <input class="inp" id="set-tel"/>
+        <label class="lbl">Email (optionnel)</label>
+        <input class="inp" id="set-email" type="email" placeholder="vous@email.com"/>
+        <label class="lbl">Bio / a propos</label>
+        <textarea class="ta" id="set-bio" placeholder="Parlez un peu de vous..." style="min-height:60px"></textarea>
+        <button class="btn btn-ghost" style="margin-top:14px" onclick="saveProfile()">💾 Enregistrer</button>
+        <button class="btn btn-ghost" style="margin-top:10px" onclick="printMyInfo()">🖨️ Imprimer mes informations</button>
+      </div>
+
+      <div class="card" id="contact-admin-card">
+        <div class="card-h">📩 Nous contacter</div>
+        <p class="muted" style="margin-bottom:12px">Une question, un probleme avec votre compte ou votre paiement ? Contactez l'administrateur directement.</p>
+        <div id="contact-admin-buttons" class="row2"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-h">💼 Profil professionnel</div>
+        <label class="lbl">Nom de l'entreprise / activite</label>
+        <input class="inp" id="set-biz-name" placeholder="Ex: Salon Awa Beaute"/>
+        <label class="lbl">Description de l'activite</label>
+        <textarea class="ta" id="set-biz-desc" placeholder="Ce que vous proposez..." style="min-height:60px"></textarea>
+        <label class="lbl">Horaires</label>
+        <input class="inp" id="set-biz-hours" placeholder="Ex: Lun-Sam 8h-18h"/>
+        <label class="lbl">Adresse</label>
+        <input class="inp" id="set-biz-addr" placeholder="Ex: Cocody, Abidjan"/>
+        <button class="btn btn-ghost" style="margin-top:14px" onclick="saveBizProfile()">💾 Enregistrer le profil pro</button>
+      </div>
+
+      <div class="card">
+        <div class="card-h">🤖 Assistant d'absence</div>
+        <div class="settings-row">
+          <div class="settings-row-txt">
+            <b>Activer l'assistant</b>
+            <span>Repond a votre place quand vous etes absent(e)/occupe(e)</span>
+          </div>
+          <label class="switch"><input type="checkbox" id="chk-away" onchange="toggleAwayMode(this.checked)"/><span class="switch-track"></span></label>
+        </div>
+        <label class="lbl">Message automatique</label>
+        <textarea class="ta" id="away-msg-input" placeholder="Je suis actuellement occupe(e) ou absent(e). Votre demande sera traitee sous 72h."></textarea>
+        <button class="btn btn-ghost" style="margin-top:12px" onclick="saveAwayMsg()">💾 Enregistrer le message</button>
+        <p class="muted" style="margin-top:10px">Quand un appel n'est pas decroche, l'assistant decline automatiquement et envoie ce message a votre correspondant. Si votre navigateur le permet, une voix peut aussi l'annoncer pendant l'appel.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-h">🔔 Notifications</div>
+        <button class="btn btn-ghost" onclick="requestNotifPermission()">Activer les notifications</button>
+      </div>
+
+      <button class="btn btn-danger" onclick="doLogout()">Se deconnecter</button>
+      <p class="muted center" style="margin-top:16px">Compte cree le <span id="me-created"></span></p>
+    </div>
+  </div>
+
+  <!-- ============ FLECHES PRECEDENT / SUIVANT ============ -->
+  <div id="prevnextbar" class="prevnextbar hidden">
+    <button class="pn-btn" onclick="goPrevTab()">◀ Precedent</button>
+    <button class="pn-btn" onclick="goNextTab()">Suivant ▶</button>
+  </div>
+
+  <!-- ============ BOTTOM NAV ============ -->
+  <div id="bottomnav" class="bottomnav hidden">
+    <button class="nav-btn active" data-s="map" onclick="goScreen('map')"><span class="ni">🗺️</span>Carte</button>
+    <button class="nav-btn" data-s="contacts" onclick="goScreen('contacts')"><span class="ni">👥</span>Proches<span class="nav-badge hidden" id="badge-contacts">0</span></button>
+    <button class="nav-btn" data-s="statuses" onclick="goScreen('statuses')"><span class="ni">⭐</span>Statuts</button>
+    <button class="nav-btn" data-s="calls" onclick="goScreen('calls')"><span class="ni">📞</span>Appels</button>
+    <button class="nav-btn" data-s="messages" onclick="goScreen('messages')"><span class="ni">💬</span>Messages<span class="nav-badge hidden" id="badge-messages">0</span></button>
+  </div>
+
+</div>
+
+<!-- ============ CHAT SCREEN ============ -->
+<div id="scr-chat" class="chat-screen">
+  <div class="chat-hdr">
+    <button class="icon-btn" onclick="closeChat()">←</button>
+    <div class="avatar" id="chat-avatar"></div>
+    <div>
+      <div style="font-weight:800" id="chat-name"></div>
+      <div class="muted" id="chat-sub" style="font-size:0.72rem"></div>
+    </div>
+    <div style="margin-left:auto;display:flex;gap:8px">
+      <button class="ic-btn ic-call" onclick="startCall(currentChatUid,'audio')">📞</button>
+      <button class="ic-btn ic-video" onclick="startCall(currentChatUid,'video')">🎥</button>
+      <button class="icon-btn" onclick="goHomeFromAnywhere()" title="Accueil">🏠</button>
+      <button class="icon-btn" onclick="attemptQuitApp()" title="Quitter">🚪</button>
+    </div>
+  </div>
+  <div class="chat-body" id="chat-body"></div>
+  <div class="chat-input-row">
+    <input class="inp" id="chat-input" placeholder="Ecrire un message..." onkeydown="if(event.key==='Enter')sendChatMessage()"/>
+    <button class="round-send" onclick="sendChatMessage()">➤</button>
+  </div>
+</div>
+
+<!-- ============ INCOMING CALL ============ -->
+<div id="modal-incoming">
+  <div class="center" style="margin-top:40px">
+    <div class="call-avatar-big" id="inc-avatar"></div>
+    <div class="call-name-big" id="inc-name"></div>
+    <div class="call-status-txt" id="inc-type">Appel entrant...</div>
+  </div>
+  <div class="call-btns-row">
+    <div class="center"><button class="call-round-btn call-decline" onclick="declineCall()">✕</button><div style="margin-top:8px;font-size:0.75rem">Refuser</div></div>
+    <div class="center"><button class="call-round-btn call-accept" onclick="acceptCall()">✓</button><div style="margin-top:8px;font-size:0.75rem">Accepter</div></div>
+  </div>
+</div>
+
+<!-- ============ IN CALL ============ -->
+<div id="modal-call">
+  <div class="video-stage hidden" id="video-stage">
+    <video id="remote-video" autoplay playsinline></video>
+    <video id="local-video" autoplay playsinline muted class="hidden"></video>
+  </div>
+  <div id="rec-badge" class="rec-badge hidden"><span class="rec-dot"></span>ENREGISTREMENT</div>
+  <div class="center" id="audio-only-info" style="margin-top:40px">
+    <div class="call-avatar-big" id="call-avatar"></div>
+    <div class="call-name-big" id="call-name"></div>
+    <div class="call-status-txt" id="call-status">Appel en cours...</div>
+  </div>
+  <div style="width:100%">
+    <div class="call-ctrl-row" style="margin-bottom:18px">
+      <button class="call-ctrl-btn" id="btn-mute" onclick="toggleMute()">🎤</button>
+      <button class="call-ctrl-btn hidden" id="btn-cam" onclick="toggleCam()">📷</button>
+      <button class="call-ctrl-btn" id="btn-rec" onclick="toggleRecording()">⏺️</button>
+      <button class="call-ctrl-btn" id="btn-speaker" onclick="toggleSpeaker()">🔊</button>
+    </div>
+    <button class="call-round-btn call-decline" style="margin:0 auto;display:flex" onclick="endCall()">☎</button>
+  </div>
+</div>
+
+<!-- ============ ADD CONTACT MODAL ============ -->
+<div id="modal-profile" class="modal-bg" onclick="if(event.target===this)closeProfileModal()">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div id="profile-modal-body"></div>
+  </div>
+</div>
+
+<!-- ============ STATUS CREATE MODAL ============ -->
+<div id="modal-status-create" class="modal-bg" onclick="if(event.target===this)closeStatusCreate()">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="card-h">⭐ Nouveau statut</div>
+    <textarea class="ta" id="status-text-input" placeholder="Quoi de neuf ?"></textarea>
+
+    <label class="lbl">Photo (optionnel)</label>
+    <div class="row2">
+      <label class="btn btn-ghost" for="status-photo-camera">📷 Prendre une photo</label>
+      <label class="btn btn-ghost" for="status-photo-gallery">🖼️ Depuis la galerie</label>
+    </div>
+    <input type="file" accept="image/*" capture="environment" id="status-photo-camera" class="hidden"/>
+    <input type="file" accept="image/*" id="status-photo-gallery" class="hidden"/>
+    <img id="status-photo-preview" class="hidden" style="width:100%;border-radius:12px;margin-top:10px;max-height:220px;object-fit:cover"/>
+    <button class="btn btn-ghost hidden" id="btn-remove-status-photo" onclick="removeStatusPhoto()" style="margin-top:8px">✕ Retirer la photo</button>
+
+    <label class="lbl">Video (optionnel — 20 Mo max)</label>
+    <div class="row2">
+      <label class="btn btn-ghost" for="status-video-camera">🎥 Filmer une video</label>
+      <label class="btn btn-ghost" for="status-video-gallery">🎞️ Depuis la galerie</label>
+    </div>
+    <input type="file" accept="video/*" capture="environment" id="status-video-camera" class="hidden"/>
+    <input type="file" accept="video/*" id="status-video-gallery" class="hidden"/>
+    <video id="status-video-preview" class="hidden" controls style="width:100%;border-radius:12px;margin-top:10px;max-height:220px"></video>
+    <button class="btn btn-ghost hidden" id="btn-remove-status-video" onclick="removeStatusVideo()" style="margin-top:8px">✕ Retirer la video</button>
+
+    <button class="btn btn-primary" style="margin-top:16px" onclick="submitStatus()">Publier (visible 24h)</button>
+  </div>
+</div>
+
+<!-- ============ STATUS VIEWER (fullscreen) ============ -->
+<div id="modal-status-view" style="display:none;position:fixed;inset:0;background:#000;z-index:9600;flex-direction:column" onclick="closeStatusView(event)">
+  <div style="padding:16px;display:flex;align-items:center;gap:10px;color:#fff">
+    <div class="avatar" id="statusview-avatar" style="width:36px;height:36px;font-size:0.8rem"></div>
+    <div>
+      <div style="font-weight:800;font-size:0.88rem" id="statusview-name"></div>
+      <div style="font-size:0.7rem;opacity:0.75" id="statusview-time"></div>
+    </div>
+    <button class="icon-btn" style="margin-left:auto;background:rgba(255,255,255,0.15);border:none;color:#fff" onclick="closeStatusView(event)">✕</button>
+  </div>
+  <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:24px;color:#fff;text-align:center" onclick="event.stopPropagation()">
+    <div>
+      <img id="statusview-photo" class="hidden" style="max-width:100%;max-height:60vh;border-radius:16px;margin-bottom:16px"/>
+      <video id="statusview-video" class="hidden" autoplay playsinline controls style="max-width:100%;max-height:60vh;border-radius:16px;margin-bottom:16px"></video>
+      <div id="statusview-text" style="font-size:1.1rem;line-height:1.5"></div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+<div id="print-area"></div>
+
+<!-- ============ ADMIN LOGIN ============ -->
+<div id="scr-admin-login" class="hidden" style="position:fixed;inset:0;background:var(--bg);z-index:8100;overflow-y:auto">
+  <div class="auth-wrap">
+    <button class="btn-sm btn-ghost" style="position:absolute;top:18px;left:18px" onclick="closeAdminLogin()" title="Retour a l'accueil">← Accueil</button>
+    <div class="auth-hero">
+      <div class="mark">🔐</div>
+      <h1>Espace administrateur</h1>
+      <p>Reserve a la personne qui gere l'application</p>
+    </div>
+    <label class="lbl" style="font-size:0.9rem">Mot de passe administrateur</label>
+    <div class="pwd-wrap">
+      <input class="inp" id="admin-pwd-input" type="password" style="font-size:1.05rem;padding:16px" onkeydown="if(event.key==='Enter')doAdminLogin()"/>
+      <button type="button" class="pwd-eye" onclick="togglePwd('admin-pwd-input',this)">👁️</button>
+    </div>
+    <button class="btn btn-primary" id="admin-login-btn" type="button" style="margin-top:18px" onclick="doAdminLogin()">Entrer</button>
+    <button class="btn btn-ghost" style="margin-top:12px" onclick="closeAdminLogin()">← Retour a l'accueil</button>
+  </div>
+</div>
+
+<!-- ============ ADMIN DASHBOARD ============ -->
+<div id="scr-admin" class="hidden" style="position:fixed;inset:0;background:var(--bg);z-index:8000;overflow-y:auto">
+  <div class="topbar">
+    <div class="brand">🔐 Administration</div>
+    <button class="icon-btn" onclick="attemptQuitApp()" title="Quitter">🚪</button>
+    <button class="icon-btn" onclick="closeAdmin()">✕</button>
+  </div>
+  <div style="padding:18px">
+
+    <div class="card">
+      <div class="card-h">🖼️ Logo de l'application</div>
+      <div style="display:flex;align-items:center;gap:14px">
+        <div class="avatar" id="admin-logo-preview" style="width:56px;height:56px;object-fit:cover"></div>
+        <label class="btn btn-ghost" style="width:auto;padding:10px 16px" for="admin-logo-input">Changer la photo</label>
+        <input type="file" accept="image/*" id="admin-logo-input" class="hidden"/>
+      </div>
+      <p class="muted" style="margin-top:8px">Cette photo s'affiche en haut a gauche pour tous les utilisateurs.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-h">📩 Mes coordonnees de contact</div>
+      <p class="muted" style="margin-bottom:10px">Affichees aux utilisateurs dans "Nous contacter" (WhatsApp, SMS, appel, email).</p>
+      <label class="lbl" style="margin-top:0">Telephone (WhatsApp / SMS / Appel)</label>
+      <input class="inp" id="admin-contact-tel" placeholder="Ex: +225 07 48 93 56 86"/>
+      <label class="lbl">Email</label>
+      <input class="inp" id="admin-contact-email" type="email" placeholder="contact@exemple.com"/>
+      <button class="btn btn-ghost" style="margin-top:12px" onclick="saveAdminContact()">💾 Enregistrer mes coordonnees</button>
+    </div>
+
+    <div class="card">
+      <div class="card-h">📍 Suivre un utilisateur en direct</div>
+      <p class="muted" style="margin-bottom:10px">Recherchez par telephone, nom, pseudo ou email. La position ne s'affiche que si la personne a elle-meme active "Partager ma position en direct".</p>
+      <input class="inp" id="admin-track-search" placeholder="Telephone, nom, pseudo ou email..." oninput="adminSearchTrackUsers()"/>
+      <div id="admin-track-results" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-h">🗺️ Carte Google Maps (optionnel)</div>
+      <p class="muted" style="margin-bottom:10px">Sans cle, l'application utilise la carte gratuite OpenStreetMap (fonctionne deja tres bien). Si vous collez une cle Google Maps ici, l'app basculera automatiquement dessus pour tout le monde — avec vue satellite, Street View et infos de lieux. Google facture au-dela d'un certain usage mensuel.</p>
+      <label class="lbl" style="margin-top:0">Cle API Google Maps</label>
+      <input class="inp" id="admin-gmaps-key" placeholder="Collez votre cle ici"/>
+      <button class="btn btn-ghost" style="margin-top:12px" onclick="saveGoogleMapsKey()">💾 Enregistrer la cle</button>
+    </div>
+
+    <div class="card">
+      <div class="card-h">📱 Code QR de connexion</div>
+      <p class="muted" style="margin-bottom:12px">Les gens scannent ce code pour ouvrir l'application directement, ou vous</p>
+      <div class="center">
+        <div id="admin-qr-code" style="display:inline-block;background:#fff;padding:12px;border-radius:12px"></div>
+        <p class="muted" style="margin-top:8px;word-break:break-all" id="admin-qr-url"></p>
+      </div>
+      <button class="btn btn-ghost" style="margin-top:10px" onclick="printQrCode()">🖨️ Imprimer le code QR</button>
+    </div>
+
+    <div class="card">
+      <div class="card-h">🔑 Changer mon mot de passe administrateur</div>
+      <label class="lbl" style="margin-top:0">Mot de passe actuel</label>
+      <div class="pwd-wrap"><input class="inp" id="admin-pwd-current" type="password"/><button type="button" class="pwd-eye" onclick="togglePwd('admin-pwd-current',this)">👁️</button></div>
+      <label class="lbl">Nouveau mot de passe</label>
+      <div class="pwd-wrap"><input class="inp" id="admin-pwd-new" type="password" placeholder="Minimum 6 caracteres"/><button type="button" class="pwd-eye" onclick="togglePwd('admin-pwd-new',this)">👁️</button></div>
+      <button class="btn btn-ghost" style="margin-top:12px" onclick="changeAdminPassword()">💾 Changer mon mot de passe</button>
+    </div>
+
+    <div class="tab-row">
+      <div class="tab-chip active" data-at="users" onclick="setAdminTab('users',this)">Utilisateurs</div>
+      <div class="tab-chip" data-at="payments" onclick="setAdminTab('payments',this)">Paiements en attente<span class="nav-badge hidden" id="admin-pay-badge" style="position:static;margin-left:6px">0</span></div>
+    </div>
+
+    <div id="admin-users-pane">
+      <input class="inp" id="admin-user-search" placeholder="Rechercher un utilisateur..." oninput="renderAdminUsers()" style="margin-bottom:12px"/>
+      <div id="admin-users-list"></div>
+    </div>
+    <div id="admin-payments-pane" class="hidden">
+      <div id="admin-payments-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ CARTE DE SUIVI EN DIRECT (ADMIN) ============ -->
+<div id="scr-admin-track-map" class="hidden" style="position:fixed;inset:0;background:#fff;z-index:8300">
+  <div class="topbar">
+    <div class="brand" id="track-map-name">📍</div>
+    <button class="btn-sm btn-ghost" onclick="closeAdminTrackMap()">← Retour</button>
+  </div>
+  <div class="map-container" style="height:calc(100vh - 66px)">
+    <div id="admin-track-map" style="width:100%;height:100%"></div>
+    <div class="map-layer-switch" id="admin-map-layer-switch">
+      <button type="button" class="map-layer-btn active" data-view="default" onclick="setAdminTrackMapView('default')">🗺️ Defaut</button>
+      <button type="button" class="map-layer-btn" data-view="satellite" onclick="setAdminTrackMapView('satellite')">🛰️ Satellite</button>
+      <button type="button" class="map-layer-btn" data-view="terrain" onclick="setAdminTrackMapView('terrain')">⛰️ Relief</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
