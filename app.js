@@ -497,6 +497,28 @@ function switchBaseLayer(mapObj, layers, which, btnGroupId) {
 function setMainMapView(which) { switchBaseLayer(map, mainLayers, which, "map-layer-switch"); }
 function setAdminTrackMapView(which) { switchBaseLayer(adminTrackMap, adminLayers, which, "admin-map-layer-switch"); }
 
+// ------------------------------------------------------------------
+// PLEIN ECRAN POUR LES CARTES — reutilisable partout (utilisateur et admin)
+// ------------------------------------------------------------------
+function toggleMapFullscreen(containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const btn = el.querySelector(".map-fs-btn");
+  const isFs = el.classList.toggle("map-fullscreen");
+  document.body.classList.toggle("map-fs-lock", isFs);
+  if (btn) btn.textContent = isFs ? "✕ Quitter le plein ecran" : "⛶ Plein ecran";
+  setTimeout(() => {
+    if (containerId === "map-container-main") {
+      if (mapProvider === "google" && gMap) google.maps.event.trigger(gMap, "resize");
+      else if (map) map.invalidateSize();
+    } else if (containerId === "admin-self-map-container" && adminSelfMap) {
+      adminSelfMap.invalidateSize();
+    } else if (containerId === "admin-track-map-container" && adminTrackMap) {
+      adminTrackMap.invalidateSize();
+    }
+  }, 60);
+}
+
 function loadGoogleMapsScript(key) {
   return new Promise((resolve, reject) => {
     if (window.google && window.google.maps) return resolve();
@@ -1723,6 +1745,7 @@ function doAdminLogin() {
     document.getElementById("scr-admin").classList.remove("hidden");
     renderAdminUsers();
     renderAdminPayments();
+    setTimeout(initAdminSelfMap, 150);
     fbGet("/pr_config/logo", logo => {
       const prev = document.getElementById("admin-logo-preview");
       if (logo) { prev.style.backgroundImage = "url(" + logo + ")"; prev.style.backgroundSize = "cover"; prev.textContent = ""; }
@@ -1748,6 +1771,7 @@ function closeAdmin() {
 function doCloseAdminUI() {
   isAdmin = false;
   document.getElementById("scr-admin").classList.add("hidden");
+  if (adminSelfWatchId) { navigator.geolocation.clearWatch(adminSelfWatchId); adminSelfWatchId = null; }
 }
 function setAdminTab(t, el) {
   adminTab = t;
@@ -2013,6 +2037,58 @@ function updateAdminTrackPosition(uid, firstLoad) {
 function closeAdminTrackMap() {
   clearInterval(adminTrackTimer);
   document.getElementById("scr-admin-track-map").classList.add("hidden");
+}
+
+// ------------------------------------------------------------------
+// "ME SITUER" — l'administrateur voit sa propre position sur la carte,
+// pour s'orienter quand il sort (aucun rapport avec le suivi des autres).
+// ------------------------------------------------------------------
+let adminSelfMap = null, adminSelfLayers = null, adminSelfMarker = null, adminSelfWatchId = null;
+function initAdminSelfMap() {
+  const statusEl = document.getElementById("admin-self-map-status");
+  if (!adminSelfMap) {
+    adminSelfMap = L.map("admin-self-map", { zoomControl: true }).setView([6.827, -5.289], 6);
+    adminSelfLayers = makeBaseLayers();
+    adminSelfLayers.default.addTo(adminSelfMap);
+  } else {
+    setTimeout(() => adminSelfMap.invalidateSize(), 100);
+  }
+  if (!navigator.geolocation) { if (statusEl) statusEl.textContent = "Geolocalisation non disponible sur cet appareil"; return; }
+  if (adminSelfWatchId) navigator.geolocation.clearWatch(adminSelfWatchId);
+  if (statusEl) statusEl.textContent = "Localisation en cours...";
+  adminSelfWatchId = navigator.geolocation.watchPosition(pos => {
+    const { latitude, longitude, accuracy } = pos.coords;
+    if (adminSelfMarker) adminSelfMarker.setLatLng([latitude, longitude]);
+    else adminSelfMarker = L.circleMarker([latitude, longitude], { radius: 9, color: "#4A3AFF", fillColor: "#6A5AFF", fillOpacity: 0.9, weight: 3 }).addTo(adminSelfMap).bindPopup("Vous");
+    if (statusEl) statusEl.textContent = "Position a jour (precision ~" + Math.round(accuracy) + " m)";
+  }, err => {
+    if (statusEl) statusEl.textContent = "Impossible d'acceder a votre position : " + err.message;
+  }, { enableHighAccuracy: true, maximumAge: 5000 });
+  navigator.geolocation.getCurrentPosition(pos => {
+    adminSelfMap.setView([pos.coords.latitude, pos.coords.longitude], 15);
+  }, () => {}, { timeout: 5000 });
+}
+function centerAdminSelfMap() {
+  if (!adminSelfMap) return;
+  navigator.geolocation.getCurrentPosition(pos => {
+    adminSelfMap.setView([pos.coords.latitude, pos.coords.longitude], 16);
+  }, () => showToast("Impossible d'acceder a votre position"), { enableHighAccuracy: true, timeout: 5000 });
+}
+function setAdminSelfMapView(which) { switchBaseLayer(adminSelfMap, adminSelfLayers, which, "admin-self-map-layer-switch"); }
+
+// ------------------------------------------------------------------
+// PARTAGER LE LIEN DE L'APPLICATION (fonctionne meme si la barre du
+// navigateur n'est pas visible, via le menu de partage natif du telephone)
+// ------------------------------------------------------------------
+function shareAppLink() {
+  const url = location.origin + location.pathname;
+  if (navigator.share) {
+    navigator.share({ title: "Shaman Chooz Call Center", text: "Rejoins-moi sur l'application Shaman Chooz Call Center :", url }).catch(() => {});
+  } else if (navigator.clipboard) {
+    navigator.clipboard.writeText(url).then(() => showToast("Lien copie ! Vous pouvez le coller sur WhatsApp, Facebook...")).catch(() => showToast(url));
+  } else {
+    showToast(url);
+  }
 }
 
 function openAdminUserDetail(uid) {
