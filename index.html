@@ -503,13 +503,15 @@ body.map-fs-lock{overflow:hidden}
 
     <!-- ---- STATUTS ---- -->
     <div id="scr-statuses" class="screen">
-      <div class="card" onclick="openStatusCreate()" style="cursor:pointer;display:flex;align-items:center;gap:12px">
+      <div class="card" onclick="openMyStatus()" style="cursor:pointer;display:flex;align-items:center;gap:12px">
         <div class="avatar" id="mystatus-avatar" style="background:linear-gradient(135deg,var(--amber),#FFC24D)">+</div>
-        <div>
-          <b style="font-size:0.9rem">Ajouter un statut</b>
-          <div class="muted" style="font-size:0.76rem">Visible 24h par vos proches acceptes</div>
+        <div style="flex:1">
+          <b style="font-size:0.9rem" id="mystatus-label">Ajouter un statut</b>
+          <div class="muted" style="font-size:0.76rem" id="mystatus-sub">Visible 24h par vos proches acceptes</div>
         </div>
+        <button type="button" class="ic-btn" title="Ajouter un nouveau statut" onclick="event.stopPropagation();openStatusCreate()">➕</button>
       </div>
+      <div class="muted" id="statuses-list-h" style="margin:14px 0 6px;font-size:0.8rem;font-weight:700">Statuts de mes proches</div>
       <div id="statuses-list"></div>
     </div>
 
@@ -730,7 +732,7 @@ body.map-fs-lock{overflow:hidden}
   </div>
 </div>
 
-    <button class="btn btn-primary" style="margin-top:16px" onclick="submitStatus()">Publier (visible 24h)</button>
+    <button class="btn btn-primary" id="status-publish-btn" style="margin-top:16px" onclick="submitStatus()">Publier (visible 24h)</button>
   </div>
 </div>
 
@@ -742,7 +744,8 @@ body.map-fs-lock{overflow:hidden}
       <div style="font-weight:800;font-size:0.88rem" id="statusview-name"></div>
       <div style="font-size:0.7rem;opacity:0.75" id="statusview-time"></div>
     </div>
-    <button class="icon-btn" style="margin-left:auto;background:rgba(255,255,255,0.15);border:none;color:#fff" onclick="closeStatusView(event)">✕</button>
+    <button class="icon-btn hidden" id="statusview-delete-btn" style="margin-left:auto;background:rgba(255,80,80,0.25);border:none;color:#fff" onclick="deleteMyStatus(event)">🗑️</button>
+    <button class="icon-btn" style="background:rgba(255,255,255,0.15);border:none;color:#fff" onclick="closeStatusView(event)">✕</button>
   </div>
   <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:24px;color:#fff;text-align:center" onclick="event.stopPropagation()">
     <div>

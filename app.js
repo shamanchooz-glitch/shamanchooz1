@@ -69,12 +69,12 @@ function fbGet(path, cb) {
     .then(d => cb(d))
     .catch(() => cb(null));
 }
-function fbSet(path, data, cb) {
+function fbSet(path, data, cb, timeoutMs) {
   fbFetchWithTimeout(FB + path + ".json", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data)
-  }).then(r => r.ok).then(ok => cb && cb(ok)).catch(() => cb && cb(false));
+  }, timeoutMs).then(r => r.ok).then(ok => cb && cb(ok)).catch(() => cb && cb(false));
 }
 function fbPatch(path, data, cb) {
   fbFetchWithTimeout(FB + path + ".json", {
@@ -1826,12 +1826,17 @@ function submitStatus() {
     video: pendingStatusVideo || null,
     ts: nowTs(), expiresAt: nowTs() + 24 * 3600 * 1000
   };
+  const btn = document.getElementById("status-publish-btn");
+  if (btn) { btn.disabled = true; btn.textContent = (pendingStatusVideo || pendingStatusPhoto) ? "Envoi en cours..." : "Publication..."; }
+  // Delai long (2 min) car une photo/video peut prendre du temps a envoyer selon le reseau —
+  // un delai court coupait l'envoi avant qu'il ne se termine.
   fbSet("/pr_statuses/" + currentUser.id + "/" + id, entry, (ok) => {
-    if (!ok) { showToast("Erreur d'envoi — le fichier est peut-etre trop lourd"); return; }
+    if (btn) { btn.disabled = false; btn.textContent = "Publier (visible 24h)"; }
+    if (!ok) { showToast("Echec de l'envoi — reseau trop lent ou fichier trop lourd, reessayez"); return; }
     closeStatusCreate();
     showToast("Statut publie pour 24h");
     refreshStatuses();
-  });
+  }, 120000);
 }
 
 function refreshStatuses() {
@@ -1840,6 +1845,15 @@ function refreshStatuses() {
   fbGet("/pr_statuses/" + currentUser.id, mine => {
     const activeMine = mine ? Object.values(mine).filter(s => s.expiresAt > nowTs()) : [];
     avatarEl.textContent = activeMine.length ? "⭐" : "+";
+    const label = document.getElementById("mystatus-label"), sub = document.getElementById("mystatus-sub");
+    if (activeMine.length) {
+      const latest = activeMine.sort((a,b) => b.ts - a.ts)[0];
+      label.textContent = "Mon statut";
+      sub.textContent = (latest.video ? "🎥 " : (latest.photo ? "📷 " : "")) + activeMine.length + " statut(s) · " + fmtTime(latest.ts);
+    } else {
+      label.textContent = "Ajouter un statut";
+      sub.textContent = "Visible 24h par vos proches acceptes";
+    }
   });
   getAcceptedContacts(list => {
     const wrap = document.getElementById("statuses-list");
@@ -1868,12 +1882,21 @@ function refreshStatuses() {
   });
 }
 
+let viewedStatusOwnerUid = null, viewedStatusId = null;
+function openMyStatus() {
+  fbGet("/pr_statuses/" + currentUser.id, data => {
+    const active = data ? Object.entries(data).filter(([id,s]) => s.expiresAt > nowTs()) : [];
+    if (!active.length) { openStatusCreate(); return; }
+    viewStatus(currentUser.id, currentUser.nom);
+  });
+}
 function viewStatus(uid, nom) {
   fbGet("/pr_statuses/" + uid, data => {
     if (!data) return;
-    const active = Object.values(data).filter(s => s.expiresAt > nowTs()).sort((a,b) => b.ts - a.ts);
+    const active = Object.entries(data).filter(([id,s]) => s.expiresAt > nowTs()).sort((a,b) => b[1].ts - a[1].ts);
     if (!active.length) { showToast("Ce statut a expire"); return; }
-    const s = active[0];
+    const [sid, s] = active[0];
+    viewedStatusOwnerUid = uid; viewedStatusId = sid;
     document.getElementById("statusview-avatar").textContent = initials(nom);
     document.getElementById("statusview-name").textContent = nom;
     document.getElementById("statusview-time").textContent = fmtTime(s.ts) + " · disparait dans " + Math.max(1, Math.round((s.expiresAt - nowTs()) / 3600000)) + "h";
@@ -1884,7 +1907,17 @@ function viewStatus(uid, nom) {
     if (s.video) { video.src = s.video; video.classList.remove("hidden"); photo.classList.add("hidden"); }
     else if (s.photo) { photo.src = s.photo; photo.classList.remove("hidden"); video.classList.add("hidden"); }
     else { photo.classList.add("hidden"); video.classList.add("hidden"); }
+    document.getElementById("statusview-delete-btn").classList.toggle("hidden", uid !== currentUser.id);
     document.getElementById("modal-status-view").style.display = "flex";
+  });
+}
+function deleteMyStatus(e) {
+  if (e) e.stopPropagation();
+  if (!viewedStatusOwnerUid || !viewedStatusId) return;
+  fbDelete("/pr_statuses/" + viewedStatusOwnerUid + "/" + viewedStatusId, () => {
+    showToast("Statut supprime");
+    closeStatusView();
+    refreshStatuses();
   });
 }
 function closeStatusView(e) {
