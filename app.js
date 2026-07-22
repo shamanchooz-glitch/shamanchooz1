@@ -164,11 +164,15 @@ function populateCountrySelect(selId, defaultDial) {
     sel.appendChild(opt);
   });
 }
-// Combine le code pays choisi + le numero local saisi en un numero international propre (+225700000000)
+// Depuis leurs reformes de numerotation (2020-2021), la Cote d'Ivoire et le
+// Benin ont integre le "0" initial dans le numero lui-meme : il ne s'agit
+// plus d'un simple prefixe de reseau local, il doit rester meme en +225/+229.
+const KEEP_LEADING_ZERO_COUNTRIES = ["225", "229"];
+// Combine le code pays choisi + le numero local saisi en un numero international propre (+2250748935686)
 function buildIntlPhone(ccSelId, telInputId) {
   const cc = gv(ccSelId);
   let local = (gv(telInputId) || "").replace(/[^\d]/g, "");
-  if (local.startsWith("0")) local = local.slice(1); // on retire le 0 initial local
+  if (local.startsWith("0") && !KEEP_LEADING_ZERO_COUNTRIES.includes(cc)) local = local.slice(1);
   if (!cc || !local) return "";
   return "+" + cc + local;
 }
@@ -196,8 +200,8 @@ function normalizePhoneForLink(tel) {
   if (!digits) return "";
   if ((tel || "").trim().startsWith("+")) return digits;
   if (digits.startsWith("00")) return digits.slice(2);
-  // Pas d'indicatif detecte : on suppose Cote d'Ivoire par defaut (a defaut d'info) et on retire un 0 initial
-  return "225" + digits.replace(/^0/, "");
+  // Pas d'indicatif detecte : on suppose Cote d'Ivoire par defaut (le 0 initial est conserve, comme l'exige la numerotation ivoirienne)
+  return "225" + digits;
 }
 
 function doRegister() {
