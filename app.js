@@ -39,9 +39,17 @@ let messagesPollTimer = null;
 let incomingCallPollTimer = null;
 let ringtoneTimer = null;
 let seenMessageIds = {};
+// STUN : suffit quand les deux telephones peuvent se joindre directement.
+// TURN : sert de relais de secours quand le reseau bloque la connexion directe
+// (Wi-Fi d'entreprise, certaines connexions mobiles restrictives...).
+// Open Relay Project fournit un serveur TURN public et gratuit, largement
+// utilise en production pour de petits/moyens projets.
 const STUN = { iceServers: [
   { urls: "stun:stun.l.google.com:19302" },
-  { urls: "stun:stun1.l.google.com:19302" }
+  { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
 ]};
 
 // ------------------------------------------------------------------
@@ -795,6 +803,51 @@ function focusOnContact(uid) {
   mapCenterOn(lat, lng, 15);
   goScreen("map");
 }
+// ------------------------------------------------------------------
+// COMPOSER UN NOUVEL APPEL — choisir un proche accepte, puis audio ou video
+// (reutilise le systeme d'appel WebRTC deja fonctionnel : startCall())
+// ------------------------------------------------------------------
+function openCallPicker() {
+  if (!currentUser) return;
+  fbGet("/pr_contacts/" + currentUser.id, data => {
+    const uids = data ? Object.keys(data).filter(u => data[u].status === "accepted") : [];
+    const overlay = document.createElement("div");
+    overlay.className = "modal-bg";
+    overlay.style.zIndex = "9700";
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    if (!uids.length) {
+      overlay.innerHTML = `<div class="modal-sheet" style="max-width:420px">
+        <div class="modal-handle"></div>
+        <button type="button" class="icon-btn" style="position:absolute;top:14px;right:14px" onclick="this.closest('.modal-bg').remove()">✕</button>
+        <div class="card-h">📞 Choisir un proche</div>
+        <p class="muted center" style="margin-top:14px">Vous n'avez pas encore de proche accepte. Ajoutez-en un dans l'onglet "Proches".</p>
+      </div>`;
+      document.body.appendChild(overlay);
+      return;
+    }
+    fbGet("/pr_users", all => {
+      let html = `<div class="modal-sheet" style="max-width:420px">
+        <div class="modal-handle"></div>
+        <button type="button" class="icon-btn" style="position:absolute;top:14px;right:14px" onclick="this.closest('.modal-bg').remove()">✕</button>
+        <div class="card-h">📞 Choisir un proche a appeler</div>`;
+      uids.forEach(uid => {
+        const u = all && all[uid]; if (!u) return;
+        html += `<div class="contact-row">
+          <div class="avatar">${initials(u.nom)}</div>
+          <div class="pin-info"><div class="pin-name">${u.nom}</div><div class="pin-sub">@${u.pseudo}</div></div>
+          <div class="contact-acts">
+            <button class="ic-btn ic-call" onclick="this.closest('.modal-bg').remove();startCall('${uid}','audio')">📞</button>
+            <button class="ic-btn ic-video" onclick="this.closest('.modal-bg').remove();startCall('${uid}','video')">🎥</button>
+          </div>
+        </div>`;
+      });
+      html += `</div>`;
+      overlay.innerHTML = html;
+      document.body.appendChild(overlay);
+    });
+  });
+}
+
 function goToAddContact() {
   goScreen("contacts");
   setTimeout(() => {
@@ -988,7 +1041,7 @@ function refreshMessagesList() {
   if (!currentUser) return;
   getAcceptedContacts(list => {
     const wrap = document.getElementById("convo-list");
-    if (!list.length) { wrap.innerHTML = '<div class="empty-state"><div class="e-ic">💬</div>Ajoutez un proche pour commencer a discuter.</div>'; return; }
+    if (!list.length) { wrap.innerHTML = '<div class="empty-state" style="cursor:pointer" onclick="goToAddContact()"><div class="e-ic">💬</div>Ajoutez un proche pour commencer a discuter.<div class="btn btn-primary" style="margin-top:12px;width:auto;display:inline-block;padding:10px 18px">+ Ajouter un proche</div></div>'; return; }
     let unreadTotal = 0;
     let html = "";
     let pending = list.length;
@@ -1647,7 +1700,7 @@ const MAX_STATUS_VIDEO_BYTES = 20 * 1024 * 1024; // ~20 Mo
 
 function openStatusCreate() {
   document.getElementById("status-text-input").value = "";
-  ["status-photo-camera","status-photo-gallery","status-video-camera","status-video-gallery"].forEach(id => document.getElementById(id).value = "");
+  ["status-photo-camera","status-photo-gallery","status-video-gallery"].forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
   document.getElementById("status-photo-preview").classList.add("hidden");
   document.getElementById("btn-remove-status-photo").classList.add("hidden");
   document.getElementById("status-video-preview").classList.add("hidden");
@@ -1692,6 +1745,70 @@ function removeStatusPhoto() {
   document.getElementById("status-photo-preview").classList.add("hidden");
   document.getElementById("btn-remove-status-photo").classList.add("hidden");
 }
+// ------------------------------------------------------------------
+// ENREGISTREUR VIDEO MAISON POUR LES STATUTS — contrairement a la camera
+// native du telephone, celui-ci est controle par l'app et peut donc
+// arreter automatiquement l'enregistrement des que 20 Mo sont atteints.
+// ------------------------------------------------------------------
+let statusRecordStream = null, statusRecorder = null, statusRecordedChunks = [], statusRecordedBytes = 0;
+async function openStatusVideoRecorder() {
+  const overlay = document.getElementById("modal-video-recorder");
+  overlay.classList.remove("hidden");
+  try {
+    statusRecordStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: true });
+  } catch (e) {
+    showToast("Impossible d'acceder a la camera : " + e.message);
+    overlay.classList.add("hidden");
+    return;
+  }
+  const preview = document.getElementById("rec-preview");
+  preview.srcObject = statusRecordStream;
+  statusRecordedChunks = []; statusRecordedBytes = 0;
+  document.getElementById("rec-size-status").textContent = "0.0 Mo / 20 Mo — pret a filmer";
+  document.getElementById("rec-start-btn").classList.remove("hidden");
+  document.getElementById("rec-stop-btn").classList.add("hidden");
+}
+function startStatusRecording() {
+  if (!statusRecordStream) return;
+  statusRecordedChunks = []; statusRecordedBytes = 0;
+  let mimeType = "video/webm;codecs=vp8,opus";
+  if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = "video/webm";
+  statusRecorder = new MediaRecorder(statusRecordStream, { mimeType });
+  statusRecorder.ondataavailable = (e) => {
+    if (!e.data || !e.data.size) return;
+    statusRecordedChunks.push(e.data);
+    statusRecordedBytes += e.data.size;
+    document.getElementById("rec-size-status").textContent = (statusRecordedBytes / 1024 / 1024).toFixed(1) + " Mo / 20 Mo";
+    if (statusRecordedBytes >= MAX_STATUS_VIDEO_BYTES) {
+      showToast("⏹️ Limite de 20 Mo atteinte — enregistrement arrete automatiquement");
+      stopStatusRecording();
+    }
+  };
+  statusRecorder.onstop = () => {
+    const blob = new Blob(statusRecordedChunks, { type: "video/webm" });
+    const reader = new FileReader();
+    reader.onload = () => {
+      pendingStatusVideo = reader.result;
+      const v = document.getElementById("status-video-preview");
+      v.src = reader.result; v.classList.remove("hidden");
+      document.getElementById("btn-remove-status-video").classList.remove("hidden");
+    };
+    reader.readAsDataURL(blob);
+    closeStatusVideoRecorder();
+  };
+  statusRecorder.start(500); // on verifie la taille toutes les 500ms
+  document.getElementById("rec-start-btn").classList.add("hidden");
+  document.getElementById("rec-stop-btn").classList.remove("hidden");
+}
+function stopStatusRecording() {
+  if (statusRecorder && statusRecorder.state !== "inactive") statusRecorder.stop();
+  else closeStatusVideoRecorder();
+}
+function closeStatusVideoRecorder() {
+  document.getElementById("modal-video-recorder").classList.add("hidden");
+  if (statusRecordStream) { statusRecordStream.getTracks().forEach(t => t.stop()); statusRecordStream = null; }
+}
+
 function removeStatusVideo() {
   pendingStatusVideo = null;
   const v = document.getElementById("status-video-preview");

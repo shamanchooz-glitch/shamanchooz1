@@ -516,7 +516,12 @@ body.map-fs-lock{overflow:hidden}
     <!-- ---- CALLS ---- -->
     <div id="scr-calls" class="screen">
       <div class="card">
-        <div class="card-h">📞 Historique des appels</div>
+        <div class="card-h">📞 Nouvel appel</div>
+        <p class="muted" style="margin-bottom:10px">Choisissez un proche pour l'appeler directement dans l'application (audio ou video).</p>
+        <button class="btn btn-primary" onclick="openCallPicker()">🔎 Choisir un proche a appeler</button>
+      </div>
+      <div class="card">
+        <div class="card-h">📜 Historique des appels</div>
         <div id="call-log"></div>
       </div>
     </div>
@@ -705,13 +710,25 @@ body.map-fs-lock{overflow:hidden}
 
     <label class="lbl">Video (optionnel — 20 Mo max)</label>
     <div class="row2">
-      <label class="btn btn-ghost" for="status-video-camera">🎥 Filmer une video</label>
+      <button type="button" class="btn btn-ghost" onclick="openStatusVideoRecorder()">🎬 Filmer (arret auto a 20 Mo)</button>
       <label class="btn btn-ghost" for="status-video-gallery">🎞️ Depuis la galerie</label>
     </div>
-    <input type="file" accept="video/*" capture="environment" id="status-video-camera" class="hidden"/>
     <input type="file" accept="video/*" id="status-video-gallery" class="hidden"/>
     <video id="status-video-preview" class="hidden" controls style="width:100%;border-radius:12px;margin-top:10px;max-height:220px"></video>
     <button class="btn btn-ghost hidden" id="btn-remove-status-video" onclick="removeStatusVideo()" style="margin-top:8px">✕ Retirer la video</button>
+
+<!-- ============ ENREGISTREUR VIDEO (statut, arret auto 20 Mo) ============ -->
+<div id="modal-video-recorder" class="hidden" style="position:fixed;inset:0;background:#000;z-index:9800;display:flex;flex-direction:column">
+  <video id="rec-preview" autoplay playsinline muted style="flex:1;width:100%;object-fit:cover;background:#000"></video>
+  <div style="padding:18px;background:#111;color:#fff;text-align:center">
+    <p id="rec-size-status" style="margin:0 0 12px;font-weight:700">0 Mo / 20 Mo</p>
+    <div style="display:flex;gap:10px;justify-content:center">
+      <button type="button" class="btn btn-ghost" onclick="closeStatusVideoRecorder()">✕ Annuler</button>
+      <button type="button" class="btn btn-primary" id="rec-start-btn" onclick="startStatusRecording()">⏺️ Demarrer</button>
+      <button type="button" class="btn hidden" style="background:#E33;color:#fff" id="rec-stop-btn" onclick="stopStatusRecording()">⏹️ Arreter</button>
+    </div>
+  </div>
+</div>
 
     <button class="btn btn-primary" style="margin-top:16px" onclick="submitStatus()">Publier (visible 24h)</button>
   </div>
