@@ -403,6 +403,7 @@ function goScreen(name, fromPop) {
       else if (map) map.invalidateSize();
     }, 150);
   }
+  if (name === "contacts") refreshContacts();
   if (!fromPop) {
     history.replaceState({ layer: "tab", screen: name }, "", "#" + name);
   }
@@ -724,19 +725,27 @@ function onSearchInput() {
 }
 
 function sendContactRequest(uid, nom) {
-  fbSet("/pr_contacts/" + currentUser.id + "/" + uid, { status: "pending", requestedBy: currentUser.id, ts: nowTs() });
-  fbSet("/pr_contacts/" + uid + "/" + currentUser.id, { status: "pending", requestedBy: currentUser.id, ts: nowTs() });
-  showToast("Demande envoyee a " + nom);
-  document.getElementById("search-input").value = "";
-  document.getElementById("search-results").innerHTML = "";
-  refreshContacts();
+  fbSet("/pr_contacts/" + currentUser.id + "/" + uid, { status: "pending", requestedBy: currentUser.id, ts: nowTs() }, ok1 => {
+    if (!ok1) { showToast("Echec de l'envoi — verifiez votre connexion et reessayez"); return; }
+    fbSet("/pr_contacts/" + uid + "/" + currentUser.id, { status: "pending", requestedBy: currentUser.id, ts: nowTs() }, ok2 => {
+      if (!ok2) { showToast("Echec de l'envoi — verifiez votre connexion et reessayez"); return; }
+      showToast("Demande envoyee a " + nom);
+      document.getElementById("search-input").value = "";
+      document.getElementById("search-results").innerHTML = "";
+      refreshContacts();
+    });
+  });
 }
 
 function acceptContactRequest(uid) {
-  fbPatch("/pr_contacts/" + currentUser.id + "/" + uid, { status: "accepted" });
-  fbPatch("/pr_contacts/" + uid + "/" + currentUser.id, { status: "accepted" });
-  showToast("Demande acceptee");
-  refreshContacts();
+  fbPatch("/pr_contacts/" + currentUser.id + "/" + uid, { status: "accepted" }, ok1 => {
+    if (!ok1) { showToast("Echec — verifiez votre connexion et reessayez"); return; }
+    fbPatch("/pr_contacts/" + uid + "/" + currentUser.id, { status: "accepted" }, ok2 => {
+      if (!ok2) { showToast("Echec — verifiez votre connexion et reessayez"); return; }
+      showToast("Demande acceptee");
+      refreshContacts();
+    });
+  });
 }
 function declineContactRequest(uid) {
   fbDelete("/pr_contacts/" + currentUser.id + "/" + uid);
@@ -1642,6 +1651,15 @@ function closeStatusView(e) {
 }
 
 setInterval(() => { if (currentUser) refreshStatuses(); }, 15000);
+setInterval(() => { if (currentUser && currentTabName !== "contacts") refreshContactsBadgeOnly(); }, 15000);
+function refreshContactsBadgeOnly() {
+  fbGet("/pr_contacts/" + currentUser.id, (data) => {
+    const badge = document.getElementById("badge-contacts");
+    if (!badge) return;
+    const pendingInCount = data ? Object.keys(data).filter(u => data[u].status === "pending" && data[u].requestedBy !== currentUser.id).length : 0;
+    if (pendingInCount > 0) { badge.textContent = pendingInCount; badge.classList.remove("hidden"); } else badge.classList.add("hidden");
+  });
+}
 
 // ------------------------------------------------------------------
 // 14) LOGO DE L'APPLICATION (uploadable par l'admin, visible par tous)
