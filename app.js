@@ -655,7 +655,7 @@ function refreshContactsOnMap() {
   getAcceptedContacts(list => {
     const legendEl = document.getElementById("contacts-on-map");
     if (!list.length) {
-      legendEl.innerHTML = '<div class="empty-state"><div class="e-ic">🗺️</div>Ajoutez un proche et activez le partage mutuel pour le voir apparaitre ici.</div>';
+      legendEl.innerHTML = '<div class="empty-state" style="cursor:pointer" onclick="goToAddContact()"><div class="e-ic">🗺️</div>Ajoutez un proche et activez le partage mutuel pour le voir apparaitre ici.<div class="btn btn-primary" style="margin-top:12px;width:auto;display:inline-block;padding:10px 18px">+ Ajouter un proche</div></div>';
       return;
     }
     let pending = list.length;
@@ -697,6 +697,13 @@ function focusOnContact(uid) {
   const lng = mapProvider === "google" ? pos.lng() : pos.lng;
   mapCenterOn(lat, lng, 15);
   goScreen("map");
+}
+function goToAddContact() {
+  goScreen("contacts");
+  setTimeout(() => {
+    const input = document.getElementById("search-input");
+    if (input) { input.focus(); input.scrollIntoView({ behavior: "smooth", block: "start" }); }
+  }, 80);
 }
 
 // ------------------------------------------------------------------
@@ -1790,6 +1797,7 @@ function doCloseAdminUI() {
   isAdmin = false;
   document.getElementById("scr-admin").classList.add("hidden");
   if (adminSelfWatchId) { navigator.geolocation.clearWatch(adminSelfWatchId); adminSelfWatchId = null; }
+  clearInterval(adminTrackSearchPollTimer);
 }
 function setAdminTab(t, el) {
   adminTab = t;
@@ -1985,10 +1993,22 @@ function printUserSheet(uid) {
 // SUIVI EN DIRECT D'UN UTILISATEUR (uniquement si lui-meme a active
 // "Partager ma position en direct" — jamais sans son consentement)
 // ------------------------------------------------------------------
+let adminTrackSearchPollTimer = null;
 function adminSearchTrackUsers() {
   const q = gv("admin-track-search").toLowerCase();
   const wrap = document.getElementById("admin-track-results");
+  clearInterval(adminTrackSearchPollTimer);
   if (!q) { wrap.innerHTML = ""; return; }
+  runAdminTrackSearch(q);
+  // Tant que la recherche reste affichee, on revérifie toutes les 5s si la
+  // personne vient d'activer "Partager ma position en direct".
+  adminTrackSearchPollTimer = setInterval(() => {
+    const current = gv("admin-track-search").toLowerCase();
+    if (current === q) runAdminTrackSearch(q); else clearInterval(adminTrackSearchPollTimer);
+  }, 5000);
+}
+function runAdminTrackSearch(q) {
+  const wrap = document.getElementById("admin-track-results");
   fbGet("/pr_users", all => {
     const users = all ? Object.values(all).filter(Boolean) : [];
     const matches = users.filter(u =>
