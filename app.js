@@ -618,9 +618,11 @@ function toggleMapFullscreen(containerId) {
       if (mapProvider === "google" && gMap) google.maps.event.trigger(gMap, "resize");
       else if (map) map.invalidateSize();
     } else if (containerId === "admin-self-map-container" && adminSelfMap) {
-      adminSelfMap.invalidateSize();
+      if (isGoogleReady()) google.maps.event.trigger(adminSelfMap, "resize");
+      else adminSelfMap.invalidateSize();
     } else if (containerId === "admin-track-map-container" && adminTrackMap) {
-      adminTrackMap.invalidateSize();
+      if (isGoogleReady()) google.maps.event.trigger(adminTrackMap, "resize");
+      else adminTrackMap.invalidateSize();
     }
   }, 60);
 }
@@ -636,29 +638,37 @@ function loadGoogleMapsScript(key) {
   });
 }
 
+let mapProviderResolved = false;
+// Determine une seule fois si Google Maps doit etre utilise (cle valide) ou la carte gratuite.
+// Utilisable a la fois par la carte utilisateur ET par les cartes de l'espace admin,
+// meme si l'admin se connecte directement sans passer par un compte utilisateur.
+function ensureMapProviderReady(cb) {
+  if (mapProviderResolved) { cb(); return; }
+  fbGet("/pr_config/googleMapsKey", gKey => {
+    if (gKey) {
+      loadGoogleMapsScript(gKey).then(() => {
+        mapProvider = "google"; mapProviderResolved = true; cb();
+      }).catch(() => {
+        mapProvider = "leaflet"; mapProviderResolved = true; cb();
+      });
+    } else {
+      mapProvider = "leaflet"; mapProviderResolved = true; cb();
+    }
+  });
+}
+
 async function initMap() {
-  let gKey = null;
-  try { gKey = await new Promise(res => fbGet("/pr_config/googleMapsKey", res)); } catch(e) {}
-  if (gKey) {
-    try {
-      await loadGoogleMapsScript(gKey);
-      mapProvider = "google";
+  ensureMapProviderReady(() => {
+    if (mapProvider === "google") {
       initGoogleMap();
       const sw = document.getElementById("map-layer-switch"); if (sw) sw.classList.add("hidden");
-      mapPollTimer = setInterval(refreshContactsOnMap, 5000);
-      refreshContactsOnMap();
-      return;
-    } catch (e) {
-      showToast("Google Maps indisponible, utilisation de la carte gratuite");
-      mapProvider = "leaflet";
+    } else {
+      const sw = document.getElementById("map-layer-switch"); if (sw) sw.classList.remove("hidden");
+      initLeafletMap();
     }
-  } else {
-    mapProvider = "leaflet";
-  }
-  const sw = document.getElementById("map-layer-switch"); if (sw) sw.classList.remove("hidden");
-  initLeafletMap();
-  mapPollTimer = setInterval(refreshContactsOnMap, 5000);
-  refreshContactsOnMap();
+    mapPollTimer = setInterval(refreshContactsOnMap, 5000);
+    refreshContactsOnMap();
+  });
 }
 
 function initGoogleMap() {
@@ -2092,7 +2102,7 @@ function doAdminLogin() {
     document.getElementById("scr-admin").classList.remove("hidden");
     renderAdminUsers();
     renderAdminPayments();
-    setTimeout(initAdminSelfMap, 150);
+    setTimeout(() => ensureMapProviderReady(initAdminSelfMap), 150);
     fbGet("/pr_config/logo", logo => {
       const prev = document.getElementById("admin-logo-preview");
       if (logo) { prev.style.backgroundImage = "url(" + logo + ")"; prev.style.backgroundSize = "cover"; prev.textContent = ""; }
@@ -2365,21 +2375,38 @@ function renderTrackResults(rows) {
 }
 
 let adminTrackMap = null, adminTrackMarker = null, adminTrackTimer = null;
+// Vrai si Google Maps a ete active (cle valide) et est charge et pret a etre utilise
+function isGoogleReady() { return mapProvider === "google" && window.google && window.google.maps; }
+
 function adminViewUserLocation(uid, nom) {
   document.getElementById("track-map-name").textContent = "📍 " + nom;
   document.getElementById("scr-admin-track-map").classList.remove("hidden");
-  setTimeout(() => {
-    if (!adminTrackMap) {
-      adminTrackMap = L.map("admin-track-map").setView([6.827, -5.289], 6);
-      adminLayers = makeBaseLayers();
-      adminLayers.default.addTo(adminTrackMap);
+  const sw = document.getElementById("admin-map-layer-switch");
+  ensureMapProviderReady(() => setTimeout(() => {
+    if (isGoogleReady()) {
+      if (sw) sw.classList.add("hidden");
+      if (!adminTrackMap) {
+        adminTrackMap = new google.maps.Map(document.getElementById("admin-track-map"), {
+          center: { lat: 6.827, lng: -5.289 }, zoom: 6,
+          mapTypeControl: true, streetViewControl: true, zoomControl: true
+        });
+      } else {
+        google.maps.event.trigger(adminTrackMap, "resize");
+      }
     } else {
-      adminTrackMap.invalidateSize();
+      if (sw) sw.classList.remove("hidden");
+      if (!adminTrackMap) {
+        adminTrackMap = L.map("admin-track-map").setView([6.827, -5.289], 6);
+        adminLayers = makeBaseLayers();
+        adminLayers.default.addTo(adminTrackMap);
+      } else {
+        adminTrackMap.invalidateSize();
+      }
     }
     updateAdminTrackPosition(uid, true);
     clearInterval(adminTrackTimer);
     adminTrackTimer = setInterval(() => updateAdminTrackPosition(uid, false), 5000);
-  }, 100);
+  }, 100));
 }
 function updateAdminTrackPosition(uid, firstLoad) {
   fbGet("/pr_locations/" + uid, loc => {
@@ -2388,10 +2415,18 @@ function updateAdminTrackPosition(uid, firstLoad) {
       closeAdminTrackMap();
       return;
     }
-    if (adminTrackMarker) adminTrackMarker.setLatLng([loc.lat, loc.lng]);
-    else adminTrackMarker = L.circleMarker([loc.lat, loc.lng], { radius: 10, color: "#4A3AFF", fillColor: "#6A5AFF", fillOpacity: 0.9, weight: 3 }).addTo(adminTrackMap);
-    if (firstLoad) adminTrackMap.setView([loc.lat, loc.lng], 15);
-    else adminTrackMap.panTo([loc.lat, loc.lng]);
+    if (isGoogleReady()) {
+      const p = { lat: loc.lat, lng: loc.lng };
+      if (adminTrackMarker) adminTrackMarker.setPosition(p);
+      else adminTrackMarker = new google.maps.Marker({ position: p, map: adminTrackMap });
+      if (firstLoad) { adminTrackMap.setCenter(p); adminTrackMap.setZoom(15); }
+      else adminTrackMap.panTo(p);
+    } else {
+      if (adminTrackMarker) adminTrackMarker.setLatLng([loc.lat, loc.lng]);
+      else adminTrackMarker = L.circleMarker([loc.lat, loc.lng], { radius: 10, color: "#4A3AFF", fillColor: "#6A5AFF", fillOpacity: 0.9, weight: 3 }).addTo(adminTrackMap);
+      if (firstLoad) adminTrackMap.setView([loc.lat, loc.lng], 15);
+      else adminTrackMap.panTo([loc.lat, loc.lng]);
+    }
   });
 }
 function closeAdminTrackMap() {
@@ -2406,32 +2441,54 @@ function closeAdminTrackMap() {
 let adminSelfMap = null, adminSelfLayers = null, adminSelfMarker = null, adminSelfWatchId = null;
 function initAdminSelfMap() {
   const statusEl = document.getElementById("admin-self-map-status");
-  if (!adminSelfMap) {
-    adminSelfMap = L.map("admin-self-map", { zoomControl: true }).setView([6.827, -5.289], 6);
-    adminSelfLayers = makeBaseLayers();
-    adminSelfLayers.default.addTo(adminSelfMap);
+  const sw = document.getElementById("admin-self-map-layer-switch");
+  if (isGoogleReady()) {
+    if (sw) sw.classList.add("hidden");
+    if (!adminSelfMap) {
+      adminSelfMap = new google.maps.Map(document.getElementById("admin-self-map"), {
+        center: { lat: 6.827, lng: -5.289 }, zoom: 6,
+        mapTypeControl: true, streetViewControl: true, zoomControl: true
+      });
+    } else {
+      setTimeout(() => google.maps.event.trigger(adminSelfMap, "resize"), 100);
+    }
   } else {
-    setTimeout(() => adminSelfMap.invalidateSize(), 100);
+    if (sw) sw.classList.remove("hidden");
+    if (!adminSelfMap) {
+      adminSelfMap = L.map("admin-self-map", { zoomControl: true }).setView([6.827, -5.289], 6);
+      adminSelfLayers = makeBaseLayers();
+      adminSelfLayers.default.addTo(adminSelfMap);
+    } else {
+      setTimeout(() => adminSelfMap.invalidateSize(), 100);
+    }
   }
   if (!navigator.geolocation) { if (statusEl) statusEl.textContent = "Geolocalisation non disponible sur cet appareil"; return; }
   if (adminSelfWatchId) navigator.geolocation.clearWatch(adminSelfWatchId);
   if (statusEl) statusEl.textContent = "Localisation en cours...";
   adminSelfWatchId = navigator.geolocation.watchPosition(pos => {
     const { latitude, longitude, accuracy } = pos.coords;
-    if (adminSelfMarker) adminSelfMarker.setLatLng([latitude, longitude]);
-    else adminSelfMarker = L.circleMarker([latitude, longitude], { radius: 9, color: "#4A3AFF", fillColor: "#6A5AFF", fillOpacity: 0.9, weight: 3 }).addTo(adminSelfMap).bindPopup("Vous");
+    if (isGoogleReady()) {
+      const p = { lat: latitude, lng: longitude };
+      if (adminSelfMarker) adminSelfMarker.setPosition(p);
+      else adminSelfMarker = new google.maps.Marker({ position: p, map: adminSelfMap, title: "Vous" });
+    } else {
+      if (adminSelfMarker) adminSelfMarker.setLatLng([latitude, longitude]);
+      else adminSelfMarker = L.circleMarker([latitude, longitude], { radius: 9, color: "#4A3AFF", fillColor: "#6A5AFF", fillOpacity: 0.9, weight: 3 }).addTo(adminSelfMap).bindPopup("Vous");
+    }
     if (statusEl) statusEl.textContent = "Position a jour (precision ~" + Math.round(accuracy) + " m)";
   }, err => {
     if (statusEl) statusEl.textContent = "Impossible d'acceder a votre position : " + err.message;
   }, { enableHighAccuracy: true, maximumAge: 5000 });
   navigator.geolocation.getCurrentPosition(pos => {
-    adminSelfMap.setView([pos.coords.latitude, pos.coords.longitude], 15);
+    if (isGoogleReady()) { adminSelfMap.setCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude }); adminSelfMap.setZoom(15); }
+    else adminSelfMap.setView([pos.coords.latitude, pos.coords.longitude], 15);
   }, () => {}, { timeout: 5000 });
 }
 function centerAdminSelfMap() {
   if (!adminSelfMap) return;
   navigator.geolocation.getCurrentPosition(pos => {
-    adminSelfMap.setView([pos.coords.latitude, pos.coords.longitude], 16);
+    if (isGoogleReady()) { adminSelfMap.setCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude }); adminSelfMap.setZoom(16); }
+    else adminSelfMap.setView([pos.coords.latitude, pos.coords.longitude], 16);
   }, () => showToast("Impossible d'acceder a votre position"), { enableHighAccuracy: true, timeout: 5000 });
 }
 function setAdminSelfMapView(which) { switchBaseLayer(adminSelfMap, adminSelfLayers, which, "admin-self-map-layer-switch"); }
