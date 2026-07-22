@@ -110,7 +110,7 @@ a{color:inherit}
 .map-layer-switch{position:absolute;top:12px;right:12px;z-index:500;display:flex;flex-direction:column;gap:6px;background:rgba(255,255,255,0.96);padding:6px;border-radius:12px;box-shadow:0 4px 14px rgba(0,0,0,0.18)}
 .map-layer-btn{padding:8px 12px;border-radius:9px;border:1.5px solid var(--line2);background:var(--panel2);font-size:0.72rem;font-weight:700;color:var(--txt2);cursor:pointer;white-space:nowrap;text-align:left}
 .map-layer-btn.active{background:var(--indigo);color:#fff;border-color:var(--indigo)}
-.map-fs-btn{position:absolute;bottom:12px;right:12px;z-index:500;padding:9px 13px;border-radius:11px;border:1.5px solid var(--line2);background:rgba(255,255,255,0.96);font-size:0.76rem;font-weight:700;color:var(--txt2);cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,0.18)}
+.map-fs-btn{position:absolute;bottom:12px;right:12px;z-index:500;padding:9px 13px;border-radius:11px;border:1.5px solid var(--line2);background:rgba(255,255,255,0.96);font-size:0.76rem;font-weight:700;color:var(--txt2);cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,0.18);white-space:nowrap}
 .map-container.map-fullscreen{position:fixed!important;inset:0!important;z-index:9600!important;width:100vw!important;height:100vh!important;margin:0!important;border-radius:0}
 .map-container.map-fullscreen #map,.map-container.map-fullscreen #admin-self-map,.map-container.map-fullscreen #admin-track-map{width:100%!important;height:100%!important;border-radius:0!important}
 body.map-fs-lock{overflow:hidden}
@@ -478,7 +478,7 @@ body.map-fs-lock{overflow:hidden}
           <button type="button" class="map-layer-btn" data-view="terrain" onclick="setMainMapView('terrain')">⛰️ Relief</button>
         </div>
         <button type="button" class="map-fs-btn" style="right:auto;left:12px" onclick="centerMainMap()">🎯 Centrer ma position</button>
-        <button type="button" class="map-fs-btn" onclick="toggleMapFullscreen('map-container-main')">⛶ Plein ecran</button>
+        <button type="button" class="map-fs-btn" id="fs-btn-map-container-main" onclick="toggleMapFullscreen('map-container-main')">⛶ Plein ecran</button>
       </div>
       <div class="map-legend" id="contacts-on-map"></div>
     </div>
@@ -794,7 +794,7 @@ body.map-fs-lock{overflow:hidden}
           <button type="button" class="map-layer-btn" data-view="satellite" onclick="setAdminSelfMapView('satellite')">🛰️ Satellite</button>
           <button type="button" class="map-layer-btn" data-view="terrain" onclick="setAdminSelfMapView('terrain')">⛰️ Relief</button>
         </div>
-        <button type="button" class="map-fs-btn" onclick="toggleMapFullscreen('admin-self-map-container')">⛶ Plein ecran</button>
+        <button type="button" class="map-fs-btn" id="fs-btn-admin-self-map-container" onclick="toggleMapFullscreen('admin-self-map-container')">⛶ Plein ecran</button>
       </div>
       <button class="btn btn-ghost" style="margin-top:12px" onclick="centerAdminSelfMap()">🎯 Centrer sur ma position</button>
       <p class="muted" id="admin-self-map-status" style="margin-top:8px"></p>
@@ -886,7 +886,7 @@ body.map-fs-lock{overflow:hidden}
       <button type="button" class="map-layer-btn" data-view="satellite" onclick="setAdminTrackMapView('satellite')">🛰️ Satellite</button>
       <button type="button" class="map-layer-btn" data-view="terrain" onclick="setAdminTrackMapView('terrain')">⛰️ Relief</button>
     </div>
-    <button type="button" class="map-fs-btn" onclick="toggleMapFullscreen('admin-track-map-container')">⛶ Plein ecran</button>
+    <button type="button" class="map-fs-btn" id="fs-btn-admin-track-map-container" onclick="toggleMapFullscreen('admin-track-map-container')">⛶ Plein ecran</button>
   </div>
 </div>
 

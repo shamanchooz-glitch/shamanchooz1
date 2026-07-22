@@ -609,7 +609,7 @@ function centerMainMap() {
 function toggleMapFullscreen(containerId) {
   const el = document.getElementById(containerId);
   if (!el) return;
-  const btn = el.querySelector(".map-fs-btn");
+  const btn = document.getElementById("fs-btn-" + containerId);
   const isFs = el.classList.toggle("map-fullscreen");
   document.body.classList.toggle("map-fs-lock", isFs);
   if (btn) btn.textContent = isFs ? "✕ Quitter le plein ecran" : "⛶ Plein ecran";
@@ -812,7 +812,7 @@ function openCallPicker() {
   fbGet("/pr_contacts/" + currentUser.id, data => {
     const uids = data ? Object.keys(data).filter(u => data[u].status === "accepted") : [];
     const overlay = document.createElement("div");
-    overlay.className = "modal-bg";
+    overlay.className = "modal-bg open";
     overlay.style.zIndex = "9700";
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
     if (!uids.length) {
@@ -1926,7 +1926,7 @@ function getInviteMessage(nom) {
 function askActivateSharing(nom, tel, email) {
   const msg = getInviteMessage(nom);
   const overlay = document.createElement("div");
-  overlay.className = "modal-bg";
+  overlay.className = "modal-bg open";
   overlay.style.zIndex = "9700";
   overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
   overlay.innerHTML = `
