@@ -114,8 +114,94 @@ function switchAuthTab(which) {
   document.getElementById("pane-register").classList.toggle("hidden", which !== "register");
 }
 
+// ------------------------------------------------------------------
+// INDICATIFS TELEPHONIQUES INTERNATIONAUX (pour que WhatsApp/SMS/Appel
+// fonctionnent correctement quel que soit le pays de l'utilisateur)
+// ------------------------------------------------------------------
+const COUNTRY_CODES = [
+  ["225","CI","Côte d'Ivoire"],["221","SN","Sénégal"],["223","ML","Mali"],["226","BF","Burkina Faso"],
+  ["227","NE","Niger"],["228","TG","Togo"],["229","BJ","Bénin"],["224","GN","Guinée"],["220","GM","Gambie"],
+  ["245","GW","Guinée-Bissau"],["238","CV","Cap-Vert"],["231","LR","Libéria"],["232","SL","Sierra Leone"],
+  ["233","GH","Ghana"],["234","NG","Nigéria"],["237","CM","Cameroun"],["235","TD","Tchad"],
+  ["236","CF","Centrafrique"],["240","GQ","Guinée équatoriale"],["241","GA","Gabon"],["242","CG","Congo-Brazzaville"],
+  ["243","CD","RD Congo"],["244","AO","Angola"],["239","ST","Sao Tomé-et-Principe"],["212","MA","Maroc"],
+  ["213","DZ","Algérie"],["216","TN","Tunisie"],["218","LY","Libye"],["20","EG","Égypte"],["249","SD","Soudan"],
+  ["211","SS","Soudan du Sud"],["251","ET","Éthiopie"],["252","SO","Somalie"],["253","DJ","Djibouti"],
+  ["254","KE","Kenya"],["255","TZ","Tanzanie"],["256","UG","Ouganda"],["257","BI","Burundi"],["250","RW","Rwanda"],
+  ["258","MZ","Mozambique"],["260","ZM","Zambie"],["263","ZW","Zimbabwe"],["264","NA","Namibie"],
+  ["267","BW","Botswana"],["266","LS","Lesotho"],["268","SZ","Eswatini"],["261","MG","Madagascar"],
+  ["230","MU","Maurice"],["248","SC","Seychelles"],["27","ZA","Afrique du Sud"],
+  ["33","FR","France"],["32","BE","Belgique"],["41","CH","Suisse"],["49","DE","Allemagne"],["44","GB","Royaume-Uni"],
+  ["39","IT","Italie"],["34","ES","Espagne"],["351","PT","Portugal"],["31","NL","Pays-Bas"],["352","LU","Luxembourg"],
+  ["353","IE","Irlande"],["30","GR","Grèce"],["45","DK","Danemark"],["46","SE","Suède"],["47","NO","Norvège"],
+  ["358","FI","Finlande"],["48","PL","Pologne"],["420","CZ","Tchéquie"],["421","SK","Slovaquie"],["36","HU","Hongrie"],
+  ["40","RO","Roumanie"],["359","BG","Bulgarie"],["385","HR","Croatie"],["386","SI","Slovénie"],["372","EE","Estonie"],
+  ["371","LV","Lettonie"],["370","LT","Lituanie"],["354","IS","Islande"],["356","MT","Malte"],["357","CY","Chypre"],
+  ["7","RU","Russie"],["380","UA","Ukraine"],["375","BY","Biélorussie"],["90","TR","Turquie"],
+  ["1","US","États-Unis / Canada"],["52","MX","Mexique"],["55","BR","Brésil"],["54","AR","Argentine"],
+  ["56","CL","Chili"],["57","CO","Colombie"],["51","PE","Pérou"],["58","VE","Venezuela"],["593","EC","Équateur"],
+  ["591","BO","Bolivie"],["595","PY","Paraguay"],["598","UY","Uruguay"],["509","HT","Haïti"],
+  ["1809","DO","Rép. Dominicaine"],["53","CU","Cuba"],
+  ["86","CN","Chine"],["81","JP","Japon"],["82","KR","Corée du Sud"],["91","IN","Inde"],["92","PK","Pakistan"],
+  ["880","BD","Bangladesh"],["94","LK","Sri Lanka"],["977","NP","Népal"],["66","TH","Thaïlande"],
+  ["84","VN","Vietnam"],["63","PH","Philippines"],["60","MY","Malaisie"],["65","SG","Singapour"],
+  ["62","ID","Indonésie"],["95","MM","Myanmar"],["855","KH","Cambodge"],["856","LA","Laos"],
+  ["961","LB","Liban"],["962","JO","Jordanie"],["963","SY","Syrie"],["964","IQ","Irak"],["98","IR","Iran"],
+  ["966","SA","Arabie Saoudite"],["971","AE","Émirats Arabes Unis"],["974","QA","Qatar"],["973","BH","Bahreïn"],
+  ["965","KW","Koweït"],["968","OM","Oman"],["972","IL","Israël"],["970","PS","Palestine"],
+  ["93","AF","Afghanistan"],["994","AZ","Azerbaïdjan"],["995","GE","Géorgie"],["374","AM","Arménie"],
+  ["998","UZ","Ouzbékistan"],["996","KG","Kirghizistan"],["992","TJ","Tadjikistan"],["993","TM","Turkménistan"],
+  ["61","AU","Australie"],["64","NZ","Nouvelle-Zélande"]
+];
+function populateCountrySelect(selId, defaultDial) {
+  const sel = document.getElementById(selId);
+  if (!sel || sel.options.length) return; // deja rempli
+  const sorted = [...COUNTRY_CODES].sort((a, b) => a[2].localeCompare(b[2]));
+  sorted.forEach(([dial, iso, name]) => {
+    const opt = document.createElement("option");
+    opt.value = dial; opt.textContent = "+" + dial + " " + name;
+    if (dial === (defaultDial || "225")) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+// Combine le code pays choisi + le numero local saisi en un numero international propre (+225700000000)
+function buildIntlPhone(ccSelId, telInputId) {
+  const cc = gv(ccSelId);
+  let local = (gv(telInputId) || "").replace(/[^\d]/g, "");
+  if (local.startsWith("0")) local = local.slice(1); // on retire le 0 initial local
+  if (!cc || !local) return "";
+  return "+" + cc + local;
+}
+// Reconstitue {dial, local} a partir d'un numero deja enregistre, pour pre-remplir les champs a l'edition
+function splitIntlPhone(full) {
+  const digits = (full || "").replace(/[^\d]/g, "");
+  if (!digits) return { dial: "225", local: "" };
+  const sorted = [...COUNTRY_CODES].sort((a, b) => b[0].length - a[0].length);
+  for (const [dial] of sorted) {
+    if (digits.startsWith(dial)) return { dial, local: digits.slice(dial.length) };
+  }
+  return { dial: "225", local: digits.replace(/^0/, "") };
+}
+function fillPhoneFields(ccSelId, telInputId, fullNumber) {
+  populateCountrySelect(ccSelId);
+  const { dial, local } = splitIntlPhone(fullNumber);
+  const sel = document.getElementById(ccSelId);
+  if (sel) sel.value = dial;
+  const inp = document.getElementById(telInputId);
+  if (inp) inp.value = local;
+}
+// Filet de securite pour les anciens numeros deja enregistres sans indicatif
+function normalizePhoneForLink(tel) {
+  let digits = (tel || "").replace(/[^\d]/g, "");
+  if (!digits) return "";
+  if ((tel || "").trim().startsWith("+")) return digits;
+  if (digits.startsWith("00")) return digits.slice(2);
+  // Pas d'indicatif detecte : on suppose Cote d'Ivoire par defaut (a defaut d'info) et on retire un 0 initial
+  return "225" + digits.replace(/^0/, "");
+}
+
 function doRegister() {
-  const nom = gv("rg-nom"), pseudo = gv("rg-pseudo"), tel = gv("rg-tel"), mdp = gv("rg-mdp");
+  const nom = gv("rg-nom"), pseudo = gv("rg-pseudo"), tel = buildIntlPhone("rg-cc", "rg-tel"), mdp = gv("rg-mdp");
   if (!nom || !pseudo || !tel || !mdp) { showToast("Remplissez tous les champs"); return; }
   if (mdp.length < 6) { showToast("Mot de passe : 6 caracteres minimum"); return; }
   fbGet("/pr_users", (all) => {
@@ -339,7 +425,7 @@ function showMainApp() {
   document.getElementById("me-pseudo").textContent = "@" + currentUser.pseudo;
   renderMyAvatar();
   document.getElementById("set-nom").value = currentUser.nom;
-  document.getElementById("set-tel").value = currentUser.tel;
+  fillPhoneFields("set-cc", "set-tel", currentUser.tel);
   document.getElementById("set-email").value = currentUser.email || "";
   document.getElementById("set-bio").value = currentUser.bio || "";
   document.getElementById("set-biz-name").value = currentUser.bizName || "";
@@ -501,6 +587,13 @@ function setAdminTrackMapView(which) { switchBaseLayer(adminTrackMap, adminLayer
 // ------------------------------------------------------------------
 // PLEIN ECRAN POUR LES CARTES — reutilisable partout (utilisateur et admin)
 // ------------------------------------------------------------------
+function centerMainMap() {
+  navigator.geolocation.getCurrentPosition(pos => {
+    const { latitude, longitude } = pos.coords;
+    if (mapProvider === "google" && gMap) gMap.setCenter({ lat: latitude, lng: longitude }), gMap.setZoom(16);
+    else if (map) map.setView([latitude, longitude], 16);
+  }, () => showToast("Impossible d'acceder a votre position — verifiez que la localisation est activee"), { enableHighAccuracy: true, timeout: 6000 });
+}
 function toggleMapFullscreen(containerId) {
   const el = document.getElementById(containerId);
   if (!el) return;
@@ -804,20 +897,42 @@ function refreshContacts() {
 
     if (!uids.length) { listEl.innerHTML = '<div class="empty-state"><div class="e-ic">👥</div>Rien ici pour le moment.</div>'; return; }
     fbGet("/pr_users", (all) => {
+      if (contactTab === "accepted") {
+        const validUids = uids.filter(uid => all && all[uid]);
+        if (!validUids.length) { listEl.innerHTML = '<div class="empty-state"><div class="e-ic">👥</div>Rien ici pour le moment.</div>'; return; }
+        let pending = validUids.length;
+        const rows = {};
+        validUids.forEach(uid => {
+          const u = all[uid];
+          fbGet("/pr_locations/" + uid, loc => {
+            pending--;
+            const live = !!(loc && loc.sharing && (nowTs() - loc.ts) < 5 * 60000);
+            rows[uid] = { u, live };
+            if (pending === 0) {
+              let html = "";
+              validUids.forEach(id => {
+                const { u, live } = rows[id];
+                html += `<div class="contact-row">
+                  <div class="avatar" onclick="openProfileModal('${id}')">${initials(u.nom)}</div>
+                  <div class="pin-info" onclick="openProfileModal('${id}')"><div class="pin-name">${u.nom}</div><div class="pin-sub">@${u.pseudo}${live ? ' · 🟢 en direct' : ' · position non partagee'}</div></div>
+                  <div class="contact-acts">
+                    ${!live ? `<button class="ic-btn" title="Demander l'activation du partage" onclick="askActivateSharing('${(u.nom||'').replace(/'/g,"")}','${u.tel||''}','${u.email||''}')">📨</button>` : ''}
+                    <button class="ic-btn ic-call" onclick="startCall('${id}','audio')">📞</button>
+                    <button class="ic-btn ic-video" onclick="startCall('${id}','video')">🎥</button>
+                    <button class="ic-btn ic-msg" onclick="openChat('${id}','${(u.nom||'').replace(/'/g,"")}')">💬</button>
+                  </div>
+                </div>`;
+              });
+              listEl.innerHTML = html;
+            }
+          });
+        });
+        return;
+      }
       let html = "";
       uids.forEach(uid => {
         const u = all && all[uid]; if (!u) return;
-        if (contactTab === "accepted") {
-          html += `<div class="contact-row">
-            <div class="avatar" onclick="openProfileModal('${uid}')">${initials(u.nom)}</div>
-            <div class="pin-info" onclick="openProfileModal('${uid}')"><div class="pin-name">${u.nom}</div><div class="pin-sub">@${u.pseudo}</div></div>
-            <div class="contact-acts">
-              <button class="ic-btn ic-call" onclick="startCall('${uid}','audio')">📞</button>
-              <button class="ic-btn ic-video" onclick="startCall('${uid}','video')">🎥</button>
-              <button class="ic-btn ic-msg" onclick="openChat('${uid}','${u.nom.replace(/'/g,"")}')">💬</button>
-            </div>
-          </div>`;
-        } else if (contactTab === "pending-in") {
+        if (contactTab === "pending-in") {
           html += `<div class="contact-row">
             <div class="avatar">${initials(u.nom)}</div>
             <div class="pin-info"><div class="pin-name">${u.nom}</div><div class="pin-sub">Souhaite vous ajouter</div></div>
@@ -830,6 +945,7 @@ function refreshContacts() {
           html += `<div class="contact-row">
             <div class="avatar">${initials(u.nom)}</div>
             <div class="pin-info"><div class="pin-name">${u.nom}</div><div class="pin-sub">En attente de reponse</div></div>
+            <button class="btn-sm" style="background:var(--indigo);color:#fff" onclick="askActivateSharing('${(u.nom||'').replace(/'/g,"")}','${u.tel||''}','${u.email||''}')">📨 Relancer</button>
             <button class="btn-sm btn-ghost" onclick="removeContact('${uid}')">Annuler</button>
           </div>`;
         }
@@ -1297,7 +1413,7 @@ function saveAwayMsg() {
   showToast("Message enregistre");
 }
 function saveProfile() {
-  const nom = gv("set-nom"), tel = gv("set-tel"), bio = gv("set-bio"), email = gv("set-email");
+  const nom = gv("set-nom"), tel = buildIntlPhone("set-cc", "set-tel"), bio = gv("set-bio"), email = gv("set-email");
   if (!nom) { showToast("Le nom ne peut pas etre vide"); return; }
   currentUser.nom = nom; currentUser.tel = tel; currentUser.bio = bio; currentUser.email = email;
   fbPatch("/pr_users/" + currentUser.id, { nom, tel, bio, email });
@@ -1454,7 +1570,7 @@ function renderExternalContacts() {
       <div class="avatar">${initials(c.nom)}</div>
       <div class="pin-info"><div class="pin-name">${escapeHtml(c.nom)}</div><div class="pin-sub">${escapeHtml(c.tel)}</div></div>
       <div class="contact-acts">
-        <a class="ic-btn ic-call" href="tel:${encodeURIComponent(c.tel)}" style="text-decoration:none">📞</a>
+        <a class="ic-btn ic-call" href="tel:+${normalizePhoneForLink(c.tel)}" style="text-decoration:none">📞</a>
         <a class="ic-btn ic-msg" href="sms:${encodeURIComponent(c.tel)}" style="text-decoration:none">💬</a>
         <button class="ic-btn" style="background:var(--rose-pale);color:#B3184A" onclick="removeExternalContact('${c.id}')">✕</button>
       </div>
@@ -1676,8 +1792,59 @@ function refreshContactsBadgeOnly() {
 // Utilise cote admin (contacter un utilisateur) et cote utilisateur
 // (contacter l'administrateur), avec le meme rendu.
 // ------------------------------------------------------------------
+// ------------------------------------------------------------------
+// DEMANDER A QUELQU'UN D'ACTIVER "PARTAGER MA POSITION EN DIRECT"
+// Message pre-defini et modifiable, envoyable par WhatsApp/SMS/Appel/Email.
+// Utilisable a la fois cote utilisateur (mes proches) et cote admin.
+// ------------------------------------------------------------------
+const INVITE_MSG_DEFAULT = "Bonjour {nom}, peux-tu activer \"Partager ma position en direct\" sur l'application Shaman Chooz Call Center ? Ca m'aiderait a te retrouver facilement. Merci !";
+function getInviteMessage(nom) {
+  const tpl = localStorage.getItem("pr_invite_template") || INVITE_MSG_DEFAULT;
+  return tpl.replace(/\{nom\}/g, nom || "");
+}
+function askActivateSharing(nom, tel, email) {
+  const msg = getInviteMessage(nom);
+  const overlay = document.createElement("div");
+  overlay.className = "modal-bg";
+  overlay.style.zIndex = "9700";
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="modal-sheet" style="max-width:420px">
+      <div class="modal-handle"></div>
+      <button type="button" class="icon-btn" style="position:absolute;top:14px;right:14px" onclick="this.closest('.modal-bg').remove()">✕</button>
+      <div class="card-h">📨 Demander l'activation du partage</div>
+      <p class="muted" style="margin:6px 0 12px">Message a envoyer a ${escapeHtml(nom || "cette personne")} (modifiable) :</p>
+      <textarea class="ta" id="invite-msg-box" style="min-height:100px">${escapeHtml(msg)}</textarea>
+      <button class="btn-sm btn-ghost" style="margin-top:8px" onclick="saveInviteTemplate()">💾 Enregistrer comme message par defaut</button>
+      <div class="row2" style="gap:8px;margin-top:14px">
+        ${tel ? `<button class="btn btn-teal" onclick="sendInviteVia('wa','${escapeHtml(tel)}')">🟢 WhatsApp</button>` : '<div></div>'}
+        ${tel ? `<button class="btn btn-primary" onclick="sendInviteVia('sms','${escapeHtml(tel)}')">💬 SMS</button>` : '<div></div>'}
+      </div>
+      <div class="row2" style="gap:8px;margin-top:8px">
+        ${tel ? `<a class="btn btn-ghost" style="text-decoration:none" href="tel:+${normalizePhoneForLink(tel)}">📞 Appeler</a>` : '<div></div>'}
+        ${email ? `<button class="btn btn-ghost" onclick="sendInviteVia('email','${escapeHtml(email)}')">✉️ Email</button>` : '<div></div>'}
+      </div>
+      ${(!tel && !email) ? '<p class="muted center" style="margin-top:10px">Aucune coordonnee disponible pour cette personne.</p>' : ''}
+    </div>`;
+  document.body.appendChild(overlay);
+}
+function saveInviteTemplate() {
+  const box = document.getElementById("invite-msg-box");
+  if (!box) return;
+  localStorage.setItem("pr_invite_template", box.value);
+  showToast("Message par defaut enregistre pour la prochaine fois");
+}
+function sendInviteVia(kind, target) {
+  const box = document.getElementById("invite-msg-box");
+  const text = box ? box.value : getInviteMessage("");
+  const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  if (kind === "wa") window.open(waLink(target, text), "_blank");
+  else if (kind === "sms") window.location.href = "sms:+" + normalizePhoneForLink(target) + (isIOSDevice ? "&body=" : "?body=") + encodeURIComponent(text);
+  else if (kind === "email") window.location.href = "mailto:" + encodeURIComponent(target) + "?subject=" + encodeURIComponent("Partage de position") + "&body=" + encodeURIComponent(text);
+}
+
 function waLink(tel, text) {
-  const digits = (tel || "").replace(/[^\d]/g, "");
+  const digits = normalizePhoneForLink(tel);
   return "https://wa.me/" + digits + (text ? "?text=" + encodeURIComponent(text) : "");
 }
 function renderCommButtons(tel, email, label) {
@@ -1685,10 +1852,10 @@ function renderCommButtons(tel, email, label) {
   let html = '<div class="row2" style="gap:8px">';
   if (tel) {
     html += `<a class="btn btn-teal" href="${waLink(tel, 'Bonjour, ')}" target="_blank" rel="noopener" style="text-decoration:none">🟢 WhatsApp</a>`;
-    html += `<a class="btn btn-primary" href="sms:${encodeURIComponent(tel)}" style="text-decoration:none">💬 SMS</a>`;
+    html += `<a class="btn btn-primary" href="sms:+${normalizePhoneForLink(tel)}" style="text-decoration:none">💬 SMS</a>`;
   }
   html += '</div><div class="row2" style="gap:8px;margin-top:8px">';
-  if (tel) html += `<a class="btn btn-ghost" href="tel:${encodeURIComponent(tel)}" style="text-decoration:none">📞 Appeler</a>`;
+  if (tel) html += `<a class="btn btn-ghost" href="tel:+${normalizePhoneForLink(tel)}" style="text-decoration:none">📞 Appeler</a>`;
   if (email) html += `<a class="btn btn-ghost" href="mailto:${encodeURIComponent(email)}" style="text-decoration:none">✉️ Email</a>`;
   html += '</div>';
   return html;
@@ -1703,7 +1870,7 @@ function renderContactAdminButtons() {
 }
 
 function saveAdminContact() {
-  const tel = gv("admin-contact-tel"), email = gv("admin-contact-email");
+  const tel = buildIntlPhone("admin-contact-cc", "admin-contact-tel"), email = gv("admin-contact-email");
   fbSet("/pr_config/contact", { tel, email }, (ok) => {
     if (!ok) { showToast("Erreur d'enregistrement"); return; }
     showToast("Coordonnees mises a jour");
@@ -1738,6 +1905,7 @@ function openLogoFull() {
   document.body.appendChild(overlay);
 }
 // Charge le logo meme avant connexion (ecran d'authentification)
+populateCountrySelect("rg-cc");
 fbGet("/pr_config/logo", logo => {
   if (!logo) return;
   document.querySelectorAll("#auth-logo-img").forEach(img => { img.src = logo; img.classList.remove("hidden"); });
@@ -1777,7 +1945,7 @@ function doAdminLogin() {
       else prev.textContent = "📍";
     });
     fbGet("/pr_config/contact", c => {
-      document.getElementById("admin-contact-tel").value = (c && c.tel) || "";
+      fillPhoneFields("admin-contact-cc", "admin-contact-tel", c && c.tel);
       document.getElementById("admin-contact-email").value = (c && c.email) || "";
     });
     fbGet("/pr_config/googleMapsKey", key => {
@@ -2038,7 +2206,7 @@ function renderTrackResults(rows) {
       <div class="pin-info"><div class="pin-name">${escapeHtml(r.u.nom)}</div><div class="pin-sub">@${escapeHtml(r.u.pseudo)} · ${escapeHtml(r.u.tel || '-')}</div></div>
       ${r.live
         ? `<button class="btn-sm" style="background:var(--teal);color:#fff" onclick="adminViewUserLocation('${r.u.id}','${r.u.nom.replace(/'/g,"")}')">📍 Voir en direct</button>`
-        : `<span class="muted" style="font-size:0.7rem;max-width:110px;text-align:right">Position non partagee</span>`}
+        : `<button class="btn-sm" style="background:var(--indigo);color:#fff" onclick="askActivateSharing('${(r.u.nom||'').replace(/'/g,"")}','${r.u.tel||''}','${r.u.email||''}')">📨 Demander l'activation</button>`}
     </div>`).join("");
 }
 

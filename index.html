@@ -246,7 +246,10 @@ body.map-fs-lock{overflow:hidden}
         <label class="lbl">Pseudo</label>
         <input class="inp" id="rg-pseudo" placeholder="Ex: awa_ci"/>
         <label class="lbl">Telephone</label>
-        <input class="inp" id="rg-tel" type="tel" placeholder="+225 07 00 00 00 00"/>
+        <div style="display:flex;gap:8px">
+          <select class="inp" id="rg-cc" style="max-width:118px;flex:0 0 auto"></select>
+          <input class="inp" id="rg-tel" type="tel" placeholder="07 00 00 00 00" style="flex:1"/>
+        </div>
         <label class="lbl">Mot de passe</label>
         <div class="pwd-wrap">
           <input class="inp" id="rg-mdp" type="password" placeholder="Minimum 6 caracteres"/>
@@ -474,6 +477,7 @@ body.map-fs-lock{overflow:hidden}
           <button type="button" class="map-layer-btn" data-view="satellite" onclick="setMainMapView('satellite')">🛰️ Satellite</button>
           <button type="button" class="map-layer-btn" data-view="terrain" onclick="setMainMapView('terrain')">⛰️ Relief</button>
         </div>
+        <button type="button" class="map-fs-btn" style="right:auto;left:12px" onclick="centerMainMap()">🎯 Centrer ma position</button>
         <button type="button" class="map-fs-btn" onclick="toggleMapFullscreen('map-container-main')">⛶ Plein ecran</button>
       </div>
       <div class="map-legend" id="contacts-on-map"></div>
@@ -540,7 +544,10 @@ body.map-fs-lock{overflow:hidden}
         <label class="lbl">Nom affiche</label>
         <input class="inp" id="set-nom"/>
         <label class="lbl">Telephone</label>
-        <input class="inp" id="set-tel"/>
+        <div style="display:flex;gap:8px">
+          <select class="inp" id="set-cc" style="max-width:118px;flex:0 0 auto"></select>
+          <input class="inp" id="set-tel" type="tel" placeholder="07 00 00 00 00" style="flex:1"/>
+        </div>
         <label class="lbl">Email (optionnel)</label>
         <input class="inp" id="set-email" type="email" placeholder="vous@email.com"/>
         <label class="lbl">Bio / a propos</label>
@@ -790,7 +797,10 @@ body.map-fs-lock{overflow:hidden}
       <div class="card-h">📩 Mes coordonnees de contact</div>
       <p class="muted" style="margin-bottom:10px">Affichees aux utilisateurs dans "Nous contacter" (WhatsApp, SMS, appel, email).</p>
       <label class="lbl" style="margin-top:0">Telephone (WhatsApp / SMS / Appel)</label>
-      <input class="inp" id="admin-contact-tel" placeholder="Ex: +225 07 48 93 56 86"/>
+      <div style="display:flex;gap:8px">
+        <select class="inp" id="admin-contact-cc" style="max-width:118px;flex:0 0 auto"></select>
+        <input class="inp" id="admin-contact-tel" type="tel" placeholder="07 48 93 56 86" style="flex:1"/>
+      </div>
       <label class="lbl">Email</label>
       <input class="inp" id="admin-contact-email" type="email" placeholder="contact@exemple.com"/>
       <button class="btn btn-ghost" style="margin-top:12px" onclick="saveAdminContact()">💾 Enregistrer mes coordonnees</button>
