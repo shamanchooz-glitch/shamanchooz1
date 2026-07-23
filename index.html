@@ -459,6 +459,12 @@ body.map-fs-lock{overflow:hidden}
       </div>
     </div>
 
+    <div id="broadcast-banner" class="hidden" style="margin:10px 18px;padding:12px 14px;background:#FFF3D6;border:1px solid #F0C674;border-radius:12px;font-size:0.82rem;display:flex;gap:10px;align-items:flex-start">
+      <span>📣</span>
+      <span id="broadcast-text" style="flex:1"></span>
+      <button type="button" onclick="dismissBroadcast()" style="background:none;border:none;font-size:1rem;cursor:pointer">✕</button>
+    </div>
+
     <!-- ---- MAP ---- -->
     <div id="scr-map" class="screen active map-wrap">
       <div class="map-topcard card">
@@ -521,6 +527,11 @@ body.map-fs-lock{overflow:hidden}
         <div class="card-h">📞 Nouvel appel</div>
         <p class="muted" style="margin-bottom:10px">Choisissez un proche pour l'appeler directement dans l'application (audio ou video).</p>
         <button class="btn btn-primary" onclick="openCallPicker()">🔎 Choisir un proche a appeler</button>
+      </div>
+      <div class="card">
+        <div class="card-h">📱 Contacter n'importe quel numero</div>
+        <p class="muted" style="margin-bottom:10px">Pour appeler, envoyer un SMS ou un message WhatsApp a un numero qui n'utilise pas encore l'application — via votre telephone, comme d'habitude.</p>
+        <button class="btn btn-ghost" onclick="goToDialer()">🔢 Ouvrir le clavier de numerotation</button>
       </div>
       <div class="card">
         <div class="card-h">📜 Historique des appels</div>
@@ -779,6 +790,13 @@ body.map-fs-lock{overflow:hidden}
 </div>
 
 <!-- ============ ADMIN DASHBOARD ============ -->
+<div id="scr-maintenance" class="hidden" style="position:fixed;inset:0;background:var(--bg);z-index:9900;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px">
+  <div style="font-size:3rem;margin-bottom:14px">🚧</div>
+  <h2 style="margin-bottom:10px">Maintenance en cours</h2>
+  <p class="muted" id="maintenance-msg-display" style="max-width:320px">L'application est momentanement indisponible. Merci de revenir un peu plus tard.</p>
+  <button class="btn btn-ghost" style="margin-top:20px;width:auto;padding:10px 20px" onclick="location.reload()">🔄 Reessayer</button>
+</div>
+
 <div id="scr-admin" class="hidden" style="position:fixed;inset:0;background:var(--bg);z-index:8000;overflow-y:auto">
   <div class="topbar">
     <button class="btn-sm btn-ghost" onclick="closeAdmin()">← Retour</button>
@@ -786,6 +804,38 @@ body.map-fs-lock{overflow:hidden}
     <button class="icon-btn" onclick="attemptQuitApp()" title="Quitter">🚪</button>
   </div>
   <div style="padding:18px">
+
+    <div class="card">
+      <div class="card-h">📊 Vue d'ensemble</div>
+      <div id="admin-stats-box" class="muted">Chargement...</div>
+    </div>
+
+    <div class="card">
+      <div class="card-h">📣 Message a tous les utilisateurs</div>
+      <p class="muted" style="margin-bottom:10px">Ce message s'affichera en haut de l'application pour tout le monde, jusqu'a ce que vous le retiriez.</p>
+      <textarea class="ta" id="admin-broadcast-input" placeholder="Ex: Maintenance prevue ce soir de 22h a 23h..." style="min-height:70px"></textarea>
+      <div class="row2" style="margin-top:10px">
+        <button class="btn btn-primary" onclick="saveBroadcast()">📢 Publier</button>
+        <button class="btn btn-ghost" onclick="clearBroadcast()">🗑️ Retirer</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h">🚧 Mode maintenance</div>
+      <p class="muted" style="margin-bottom:10px">Quand il est active, seul vous (administrateur) pouvez utiliser l'application — les autres utilisateurs voient un message d'indisponibilite.</p>
+      <div class="share-toggle" style="margin-bottom:10px">
+        <span>Mode maintenance</span>
+        <label class="switch"><input type="checkbox" id="chk-maintenance" onchange="toggleMaintenance(this.checked)"/><span class="switch-track"></span></label>
+      </div>
+      <input class="inp" id="maintenance-msg-input" placeholder="Message affiche aux utilisateurs (optionnel)"/>
+      <button class="btn-sm btn-ghost" style="margin-top:8px" onclick="saveMaintenanceMsg()">💾 Enregistrer le message</button>
+    </div>
+
+    <div class="card">
+      <div class="card-h">🙋 Comprendre les utilisateurs</div>
+      <p class="muted" style="margin-bottom:10px">Utilisez l'application comme un utilisateur normal (carte, proches, statuts, appels, messages) avec votre propre compte personnel, separe de vos identifiants administrateur.</p>
+      <button class="btn btn-ghost" onclick="switchToUserSide()">👤 Utiliser l'application comme un utilisateur</button>
+    </div>
 
     <div class="card">
       <div class="card-h">📍 Me situer</div>
@@ -864,14 +914,32 @@ body.map-fs-lock{overflow:hidden}
     <div class="tab-row">
       <div class="tab-chip active" data-at="users" onclick="setAdminTab('users',this)">Utilisateurs</div>
       <div class="tab-chip" data-at="payments" onclick="setAdminTab('payments',this)">Paiements en attente<span class="nav-badge hidden" id="admin-pay-badge" style="position:static;margin-left:6px">0</span></div>
+      <div class="tab-chip" data-at="reports" onclick="setAdminTab('reports',this)">Signalements<span class="nav-badge hidden" id="admin-reports-badge" style="position:static;margin-left:6px">0</span></div>
+      <div class="tab-chip" data-at="log" onclick="setAdminTab('log',this)">Journal d'activite</div>
     </div>
 
     <div id="admin-users-pane">
-      <input class="inp" id="admin-user-search" placeholder="Rechercher un utilisateur..." oninput="renderAdminUsers()" style="margin-bottom:12px"/>
+      <input class="inp" id="admin-user-search" placeholder="Rechercher un utilisateur..." oninput="renderAdminUsers()" style="margin-bottom:10px"/>
+      <div class="tab-row" style="margin-bottom:12px">
+        <div class="tab-chip active" data-af="all" onclick="setAdminUserFilter('all',this)">Tous</div>
+        <div class="tab-chip" data-af="active" onclick="setAdminUserFilter('active',this)">Actifs</div>
+        <div class="tab-chip" data-af="unpaid" onclick="setAdminUserFilter('unpaid',this)">Non actifs</div>
+        <div class="tab-chip" data-af="blocked" onclick="setAdminUserFilter('blocked',this)">Bloques</div>
+      </div>
+      <button class="btn-sm btn-ghost" style="margin-bottom:12px" onclick="exportUsersCSV()">⬇️ Exporter les utilisateurs (CSV)</button>
       <div id="admin-users-list"></div>
     </div>
     <div id="admin-payments-pane" class="hidden">
+      <button class="btn-sm btn-ghost" style="margin-bottom:12px" onclick="exportPaymentsCSV()">⬇️ Exporter les paiements (CSV)</button>
       <div id="admin-payments-list"></div>
+    </div>
+    <div id="admin-reports-pane" class="hidden">
+      <p class="muted" style="margin-bottom:10px">Signalements envoyes par les utilisateurs a propos d'un comportement abusif.</p>
+      <div id="admin-reports-list"></div>
+    </div>
+    <div id="admin-log-pane" class="hidden">
+      <p class="muted" style="margin-bottom:10px">Historique de vos actions d'administration (100 dernieres).</p>
+      <div id="admin-log-list"></div>
     </div>
   </div>
 </div>

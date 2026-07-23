@@ -432,6 +432,8 @@ function showMainApp() {
   document.getElementById("scr-app").classList.remove("hidden");
   document.getElementById("bottomnav").classList.remove("hidden");
   document.getElementById("prevnextbar").classList.remove("hidden");
+  checkBroadcast();
+  checkMaintenance();
   history.replaceState({ layer: "tab", screen: "map" }, "", "#map");
   document.getElementById("me-nom").textContent = currentUser.nom;
   document.getElementById("me-pseudo").textContent = "@" + currentUser.pseudo;
@@ -858,6 +860,10 @@ function openCallPicker() {
   });
 }
 
+function goToDialer() {
+  goScreen("contacts");
+  setTimeout(() => setContactTabByName("external"), 60);
+}
 function goToAddContact() {
   goScreen("contacts");
   setTimeout(() => {
@@ -1038,6 +1044,7 @@ function openProfileModal(uid) {
       <button class="btn btn-ghost" style="margin-top:10px" onclick="closeProfileModal();openChat('${uid}','${u.nom.replace(/'/g,"")}')">💬 Message</button>
       <button class="btn btn-ghost" style="margin-top:10px" onclick="focusOnContact('${uid}');closeProfileModal()">🗺️ Voir sur la carte</button>
       <button class="btn btn-danger" style="margin-top:14px" onclick="removeContact('${uid}');closeProfileModal()">Retirer ce proche</button>
+      <button class="btn-sm btn-ghost" style="margin-top:10px;color:var(--err)" onclick="reportUser('${uid}','${(u.nom||'').replace(/'/g,"")}')">🚩 Signaler cette personne</button>
     `;
     document.getElementById("modal-profile").classList.add("open");
   });
@@ -1611,6 +1618,7 @@ function renderExternalContacts() {
         <a class="btn btn-teal" id="dialer-call-btn" href="tel:" style="text-decoration:none">📞 Appeler</a>
         <a class="btn btn-primary" id="dialer-sms-btn" href="sms:" style="text-decoration:none">💬 SMS</a>
       </div>
+      <button type="button" class="btn" id="dialer-wa-btn" style="margin-top:8px;background:#25D366;color:#fff" onclick="dialerOpenWhatsApp()">🟢 WhatsApp</button>
       <button class="btn btn-ghost" style="margin-top:10px" onclick="dialerClear()">⌫ Effacer</button>
     </div>
 
@@ -1639,6 +1647,7 @@ function renderExternalContacts() {
       <div class="contact-acts">
         <a class="ic-btn ic-call" href="tel:+${normalizePhoneForLink(c.tel)}" style="text-decoration:none">📞</a>
         <a class="ic-btn ic-msg" href="sms:${encodeURIComponent(c.tel)}" style="text-decoration:none">💬</a>
+        <a class="ic-btn" style="background:#25D366;color:#fff" href="${waLink(c.tel, '')}" target="_blank" rel="noopener">🟢</a>
         <button class="ic-btn" style="background:var(--rose-pale);color:#B3184A" onclick="removeExternalContact('${c.id}')">✕</button>
       </div>
     </div>`;
@@ -1671,6 +1680,11 @@ function updateDialerLinks() {
   const num = gv("dialer-number");
   document.getElementById("dialer-call-btn").href = "tel:" + encodeURIComponent(num);
   document.getElementById("dialer-sms-btn").href = "sms:" + encodeURIComponent(num);
+}
+function dialerOpenWhatsApp() {
+  const num = gv("dialer-number");
+  if (!num) { showToast("Composez d'abord un numero"); return; }
+  window.open(waLink(num, ""), "_blank");
 }
 function updateEmailLink() {
   const to = gv("email-to-input"), subj = gv("email-subject-input"), body = gv("email-body-input");
@@ -2102,6 +2116,9 @@ function doAdminLogin() {
     document.getElementById("scr-admin").classList.remove("hidden");
     renderAdminUsers();
     renderAdminPayments();
+    renderAdminStats();
+    loadMaintenanceSettingsUI();
+    fbGet("/pr_config/broadcast", b => { const el = document.getElementById("admin-broadcast-input"); if (el) el.value = (b && b.text) || ""; });
     setTimeout(() => ensureMapProviderReady(initAdminSelfMap), 150);
     fbGet("/pr_config/logo", logo => {
       const prev = document.getElementById("admin-logo-preview");
@@ -2125,6 +2142,197 @@ function closeAdmin() {
   if (history.state && history.state.layer === "overlay") history.back();
   else doCloseAdminUI();
 }
+// ------------------------------------------------------------------
+// VUE D'ENSEMBLE ADMIN — statistiques simples sur l'usage de l'app
+// ------------------------------------------------------------------
+// ------------------------------------------------------------------
+// JOURNAL D'ACTIVITE ADMIN — tracabilite des actions de moderation
+// ------------------------------------------------------------------
+function logAdminAction(action, target) {
+  const id = genUid("LOG-");
+  fbSet("/pr_admin_log/" + id, { action, target: target || "-", ts: nowTs() });
+}
+function renderAdminLog() {
+  fbGet("/pr_admin_log", all => {
+    const listEl = document.getElementById("admin-log-list");
+    if (!all) { listEl.innerHTML = '<p class="muted center">Aucune action pour le moment.</p>'; return; }
+    const entries = Object.values(all).sort((a,b) => b.ts - a.ts).slice(0, 100);
+    listEl.innerHTML = entries.map(e => `
+      <div class="contact-row">
+        <div class="pin-info"><div class="pin-name">${escapeHtml(e.action)}</div><div class="pin-sub">${escapeHtml(e.target)} · ${new Date(e.ts).toLocaleString('fr-FR')}</div></div>
+      </div>`).join("");
+  });
+}
+
+// ------------------------------------------------------------------
+// SIGNALEMENTS — les utilisateurs signalent un comportement abusif,
+// l'admin les traite dans un onglet dedie
+// ------------------------------------------------------------------
+function reportUser(uid, nom) {
+  const reason = prompt("Pourquoi signalez-vous " + nom + " ? (harcelement, usurpation, spam...)");
+  if (!reason) return;
+  const id = genUid("RPT-");
+  fbSet("/pr_reports/" + id, {
+    reportedUid: uid, reportedNom: nom,
+    reporterUid: currentUser.id, reporterNom: currentUser.nom,
+    reason, ts: nowTs(), resolved: false
+  }, ok => showToast(ok ? "Signalement envoye a l'administrateur" : "Echec de l'envoi"));
+}
+function renderAdminReports() {
+  fbGet("/pr_reports", all => {
+    const listEl = document.getElementById("admin-reports-list");
+    const badge = document.getElementById("admin-reports-badge");
+    if (!all) { listEl.innerHTML = '<p class="muted center">Aucun signalement.</p>'; badge.classList.add("hidden"); return; }
+    const entries = Object.entries(all).filter(([id,r]) => r && !r.resolved).sort((a,b) => b[1].ts - a[1].ts);
+    if (entries.length) { badge.textContent = entries.length; badge.classList.remove("hidden"); } else badge.classList.add("hidden");
+    if (!entries.length) { listEl.innerHTML = '<p class="muted center">Aucun signalement en attente.</p>'; return; }
+    listEl.innerHTML = entries.map(([id, r]) => `
+      <div class="card">
+        <div class="pin-name">🚩 ${escapeHtml(r.reportedNom)}</div>
+        <div class="muted" style="font-size:0.8rem;margin:4px 0">Motif : ${escapeHtml(r.reason)}</div>
+        <div class="muted" style="font-size:0.74rem">Signale par ${escapeHtml(r.reporterNom)} · ${new Date(r.ts).toLocaleString('fr-FR')}</div>
+        <div class="row2" style="margin-top:10px">
+          <button class="btn-sm btn-danger" onclick="adminBlockUser('${r.reportedUid}');adminResolveReport('${id}')">Bloquer le compte</button>
+          <button class="btn-sm btn-ghost" onclick="adminResolveReport('${id}')">Marquer traite</button>
+        </div>
+      </div>`).join("");
+  });
+}
+function adminResolveReport(id) {
+  fbPatch("/pr_reports/" + id, { resolved: true }, () => { logAdminAction("Signalement traite", id); renderAdminReports(); });
+}
+
+// ------------------------------------------------------------------
+// EXPORT CSV — sauvegarde/analyse des utilisateurs et paiements
+// ------------------------------------------------------------------
+function downloadCSV(filename, rows) {
+  const csv = rows.map(r => r.map(v => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"').join(",")).join("\r\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+function exportUsersCSV() {
+  fbGet("/pr_users", all => {
+    const users = all ? Object.values(all).filter(Boolean) : [];
+    const rows = [["Nom","Pseudo","Telephone","Email","Statut paiement","Bloque","Cree le"]];
+    users.forEach(u => rows.push([u.nom, u.pseudo, u.tel, u.email || "", u.paymentStatus || "unpaid", u.blocked ? "oui" : "non", u.createdAt ? new Date(u.createdAt).toLocaleString('fr-FR') : ""]));
+    downloadCSV("utilisateurs.csv", rows);
+    logAdminAction("Export CSV des utilisateurs", users.length + " comptes");
+  });
+}
+function exportPaymentsCSV() {
+  fbGet("/pr_payments", all => {
+    const rows = [["Nom","Zone","Montant","Reference","Methode","Date"]];
+    Object.values(all || {}).forEach(payments => Object.values(payments || {}).forEach(p => {
+      rows.push([p.nom, p.zone, p.amount, p.ref, p.method, p.ts ? new Date(p.ts).toLocaleString('fr-FR') : ""]);
+    }));
+    downloadCSV("paiements.csv", rows);
+    logAdminAction("Export CSV des paiements");
+  });
+}
+
+// ------------------------------------------------------------------
+// MODE MAINTENANCE — bloque temporairement l'acces a tous sauf l'admin
+// ------------------------------------------------------------------
+function toggleMaintenance(on) {
+  const msg = gv("maintenance-msg-input");
+  fbSet("/pr_config/maintenance", { on, msg: msg || "" }, ok => {
+    if (!ok) { showToast("Echec de l'enregistrement"); return; }
+    logAdminAction(on ? "Active le mode maintenance" : "Desactive le mode maintenance");
+    showToast(on ? "Mode maintenance active" : "Mode maintenance desactive");
+  });
+}
+function saveMaintenanceMsg() {
+  fbGet("/pr_config/maintenance", cfg => {
+    const on = !!(cfg && cfg.on);
+    fbSet("/pr_config/maintenance", { on, msg: gv("maintenance-msg-input") }, () => showToast("Message enregistre"));
+  });
+}
+function checkMaintenance() {
+  fbGet("/pr_config/maintenance", cfg => {
+    if (cfg && cfg.on && !isAdmin) {
+      document.getElementById("maintenance-msg-display").textContent = cfg.msg || "L'application est momentanement indisponible. Merci de revenir un peu plus tard.";
+      document.getElementById("scr-maintenance").classList.remove("hidden");
+    } else {
+      document.getElementById("scr-maintenance").classList.add("hidden");
+    }
+  });
+}
+function loadMaintenanceSettingsUI() {
+  fbGet("/pr_config/maintenance", cfg => {
+    const chk = document.getElementById("chk-maintenance");
+    if (chk) chk.checked = !!(cfg && cfg.on);
+    const msgInput = document.getElementById("maintenance-msg-input");
+    if (msgInput) msgInput.value = (cfg && cfg.msg) || "";
+  });
+}
+
+function renderAdminStats() {
+  const box = document.getElementById("admin-stats-box");
+  if (!box) return;
+  fbGet("/pr_users", users => {
+    const list = users ? Object.values(users).filter(Boolean) : [];
+    const total = list.length;
+    const actifs = list.filter(u => u.paymentStatus === "active").length;
+    fbGet("/pr_locations", locs => {
+      const partagePosition = locs ? Object.values(locs).filter(l => l && l.sharing && (nowTs() - l.ts) < 5 * 60000).length : 0;
+      box.innerHTML = `
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <div style="flex:1;min-width:90px;text-align:center;background:var(--panel2);border-radius:12px;padding:10px"><b style="font-size:1.3rem">${total}</b><br><span style="font-size:0.72rem">Comptes crees</span></div>
+          <div style="flex:1;min-width:90px;text-align:center;background:var(--panel2);border-radius:12px;padding:10px"><b style="font-size:1.3rem">${actifs}</b><br><span style="font-size:0.72rem">Comptes actifs</span></div>
+          <div style="flex:1;min-width:90px;text-align:center;background:var(--panel2);border-radius:12px;padding:10px"><b style="font-size:1.3rem">${partagePosition}</b><br><span style="font-size:0.72rem">Partagent leur position la</span></div>
+        </div>`;
+    });
+  });
+}
+
+// ------------------------------------------------------------------
+// MESSAGE DE DIFFUSION — visible par tous les utilisateurs en haut de l'app
+// ------------------------------------------------------------------
+function saveBroadcast() {
+  const text = gv("admin-broadcast-input");
+  if (!text) { showToast("Ecrivez un message d'abord"); return; }
+  fbSet("/pr_config/broadcast", { text, ts: nowTs() }, ok => {
+    showToast(ok ? "Message publie a tous les utilisateurs" : "Echec de l'envoi");
+  });
+}
+function clearBroadcast() {
+  fbDelete("/pr_config/broadcast", () => {
+    document.getElementById("admin-broadcast-input").value = "";
+    showToast("Message retire");
+  });
+}
+function checkBroadcast() {
+  fbGet("/pr_config/broadcast", b => {
+    const banner = document.getElementById("broadcast-banner");
+    if (!banner) return;
+    if (!b || !b.text) { banner.classList.add("hidden"); return; }
+    const dismissedTs = parseInt(localStorage.getItem("pr_broadcast_dismissed") || "0", 10);
+    if (dismissedTs >= b.ts) { banner.classList.add("hidden"); return; }
+    document.getElementById("broadcast-text").textContent = b.text;
+    banner.dataset.ts = b.ts;
+    banner.classList.remove("hidden");
+  });
+}
+function dismissBroadcast() {
+  const banner = document.getElementById("broadcast-banner");
+  localStorage.setItem("pr_broadcast_dismissed", banner.dataset.ts || nowTs());
+  banner.classList.add("hidden");
+}
+
+// ------------------------------------------------------------------
+// PONT ADMIN -> UTILISATEUR — pour tester/comprendre l'experience utilisateur
+// ------------------------------------------------------------------
+function switchToUserSide() {
+  doCloseAdminUI();
+  if (currentUser) { showMainApp(); return; }
+  document.getElementById("scr-auth").classList.remove("hidden");
+  showToast("Connectez-vous avec votre compte personnel (ou creez-en un) pour utiliser l'app normalement");
+}
+
 function doCloseAdminUI() {
   isAdmin = false;
   document.getElementById("scr-admin").classList.add("hidden");
@@ -2133,11 +2341,23 @@ function doCloseAdminUI() {
 }
 function setAdminTab(t, el) {
   adminTab = t;
-  document.querySelectorAll("#scr-admin .tab-chip").forEach(c => c.classList.remove("active"));
+  document.querySelectorAll("#scr-admin .tab-chip[data-at]").forEach(c => c.classList.remove("active"));
   el.classList.add("active");
   document.getElementById("admin-users-pane").classList.toggle("hidden", t !== "users");
   document.getElementById("admin-payments-pane").classList.toggle("hidden", t !== "payments");
-  if (t === "users") renderAdminUsers(); else renderAdminPayments();
+  document.getElementById("admin-reports-pane").classList.toggle("hidden", t !== "reports");
+  document.getElementById("admin-log-pane").classList.toggle("hidden", t !== "log");
+  if (t === "users") renderAdminUsers();
+  else if (t === "payments") renderAdminPayments();
+  else if (t === "reports") renderAdminReports();
+  else if (t === "log") renderAdminLog();
+}
+let adminUserFilter = "all";
+function setAdminUserFilter(f, el) {
+  adminUserFilter = f;
+  document.querySelectorAll("#admin-users-pane .tab-chip[data-af]").forEach(c => c.classList.remove("active"));
+  el.classList.add("active");
+  renderAdminUsers();
 }
 
 document.addEventListener("change", (e) => {
@@ -2161,6 +2381,9 @@ function renderAdminUsers() {
     const q = gv("admin-user-search").toLowerCase();
     let users = Object.values(all).filter(Boolean);
     if (q) users = users.filter(u => (u.nom||"").toLowerCase().includes(q) || (u.pseudo||"").toLowerCase().includes(q) || (u.tel||"").toLowerCase().includes(q));
+    if (adminUserFilter === "active") users = users.filter(u => u.paymentStatus === "active");
+    else if (adminUserFilter === "unpaid") users = users.filter(u => u.paymentStatus !== "active");
+    else if (adminUserFilter === "blocked") users = users.filter(u => u.blocked);
     users.sort((a,b) => b.createdAt - a.createdAt);
     if (!users.length) { listEl.innerHTML = '<p class="muted center">Aucun resultat.</p>'; return; }
     listEl.innerHTML = users.map(u => `
@@ -2182,14 +2405,15 @@ function renderAdminUsers() {
       </div>`).join("");
   });
 }
-function adminBlockUser(uid) { fbPatch("/pr_users/" + uid, { blocked: true }, () => renderAdminUsers()); }
-function adminUnblockUser(uid) { fbPatch("/pr_users/" + uid, { blocked: false }, () => renderAdminUsers()); }
-function adminActivateUser(uid) { fbPatch("/pr_users/" + uid, { paymentStatus: "active" }, () => renderAdminUsers()); }
-function adminDeactivateUser(uid) { fbPatch("/pr_users/" + uid, { paymentStatus: "unpaid" }, () => renderAdminUsers()); }
+function adminBlockUser(uid) { fbGet("/pr_users/"+uid, u => { fbPatch("/pr_users/" + uid, { blocked: true }, () => { logAdminAction("Bloque le compte", u && u.nom); renderAdminUsers(); }); }); }
+function adminUnblockUser(uid) { fbGet("/pr_users/"+uid, u => { fbPatch("/pr_users/" + uid, { blocked: false }, () => { logAdminAction("Debloque le compte", u && u.nom); renderAdminUsers(); }); }); }
+function adminActivateUser(uid) { fbGet("/pr_users/"+uid, u => { fbPatch("/pr_users/" + uid, { paymentStatus: "active" }, () => { logAdminAction("Active le compte", u && u.nom); renderAdminUsers(); }); }); }
+function adminDeactivateUser(uid) { fbGet("/pr_users/"+uid, u => { fbPatch("/pr_users/" + uid, { paymentStatus: "unpaid" }, () => { logAdminAction("Desactive le compte", u && u.nom); renderAdminUsers(); }); }); }
 function adminDeleteUser(uid, nom) {
   if (!confirm("Supprimer definitivement le compte de " + nom + " ? Cette action est irreversible.")) return;
   fbDelete("/pr_users/" + uid, () => {
     fbDelete("/pr_payments/" + uid);
+    logAdminAction("Supprime le compte", nom);
     showToast("Compte supprime");
     renderAdminUsers();
   });
