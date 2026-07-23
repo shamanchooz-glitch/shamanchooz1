@@ -434,6 +434,7 @@ function showMainApp() {
   document.getElementById("prevnextbar").classList.remove("hidden");
   checkBroadcast();
   checkMaintenance();
+  fbPatch("/pr_users/" + currentUser.id, { lastSeen: nowTs() });
   history.replaceState({ layer: "tab", screen: "map" }, "", "#map");
   document.getElementById("me-nom").textContent = currentUser.nom;
   document.getElementById("me-pseudo").textContent = "@" + currentUser.pseudo;
@@ -2100,7 +2101,25 @@ let adminTab = "users";
 function openAdminLogin() { document.getElementById("scr-admin-login").classList.remove("hidden"); }
 function closeAdminLogin() { document.getElementById("scr-admin-login").classList.add("hidden"); document.getElementById("admin-pwd-input").value = ""; }
 
+// ------------------------------------------------------------------
+// PROTECTION ANTI-FORCE-BRUTE — verrouillage progressif apres plusieurs
+// echecs de mot de passe admin (dissuasif ; stocke sur cet appareil).
+// ------------------------------------------------------------------
+function getAdminLockout() {
+  try { return JSON.parse(localStorage.getItem("pr_admin_lockout") || "{}"); } catch (e) { return {}; }
+}
+function setAdminLockout(data) { localStorage.setItem("pr_admin_lockout", JSON.stringify(data)); }
+function adminLockoutRemainingMs() {
+  const l = getAdminLockout();
+  if (!l.until) return 0;
+  return Math.max(0, l.until - nowTs());
+}
 function doAdminLogin() {
+  const remaining = adminLockoutRemainingMs();
+  if (remaining > 0) {
+    showToast("Trop d'essais incorrects. Reessayez dans " + Math.ceil(remaining / 60000) + " min");
+    return;
+  }
   const pwd = gv("admin-pwd-input");
   if (!pwd) { showToast("Entrez le mot de passe administrateur"); return; }
   const btn = document.getElementById("admin-login-btn");
@@ -2109,7 +2128,19 @@ function doAdminLogin() {
   fbGet("/pr_config/adminPwdHash", storedHash => {
     restoreBtn();
     const ok = storedHash ? (hashPwd(pwd) === storedHash) : (pwd === ADMIN_PWD_DEFAULT);
-    if (!ok) { showToast("Mot de passe incorrect"); return; }
+    if (!ok) {
+      const l = getAdminLockout();
+      const fails = (l.fails || 0) + 1;
+      // Delai qui augmente : 3 essais → 30s, 5 → 2 min, 7+ → 15 min
+      let lockMs = 0;
+      if (fails >= 7) lockMs = 15 * 60000;
+      else if (fails >= 5) lockMs = 2 * 60000;
+      else if (fails >= 3) lockMs = 30000;
+      setAdminLockout({ fails, until: lockMs ? nowTs() + lockMs : 0 });
+      showToast(lockMs ? "Mot de passe incorrect. Verrouille " + Math.ceil(lockMs / 60000) + " min apres " + fails + " essais" : "Mot de passe incorrect");
+      return;
+    }
+    setAdminLockout({ fails: 0, until: 0 });
     isAdmin = true;
     closeAdminLogin();
     document.getElementById("admin-pwd-input").value = "";
@@ -2277,6 +2308,7 @@ function renderAdminStats() {
     const list = users ? Object.values(users).filter(Boolean) : [];
     const total = list.length;
     const actifs = list.filter(u => u.paymentStatus === "active").length;
+    renderGrowthChart(list);
     fbGet("/pr_locations", locs => {
       const partagePosition = locs ? Object.values(locs).filter(l => l && l.sharing && (nowTs() - l.ts) < 5 * 60000).length : 0;
       box.innerHTML = `
@@ -2288,6 +2320,101 @@ function renderAdminStats() {
     });
   });
 }
+// Mini-graphique en barres (sans librairie) des inscriptions des 7 derniers jours
+function renderGrowthChart(list) {
+  const chart = document.getElementById("admin-growth-chart");
+  if (!chart) return;
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(nowTs() - i * 86400000);
+    d.setHours(0,0,0,0);
+    days.push({ start: d.getTime(), end: d.getTime() + 86400000, label: d.toLocaleDateString('fr-FR', { weekday: 'short' }), count: 0 });
+  }
+  list.forEach(u => {
+    if (!u.createdAt) return;
+    const day = days.find(d => u.createdAt >= d.start && u.createdAt < d.end);
+    if (day) day.count++;
+  });
+  const max = Math.max(1, ...days.map(d => d.count));
+  chart.innerHTML = days.map(d => `
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
+      <div style="font-size:0.68rem;font-weight:700">${d.count}</div>
+      <div style="width:100%;max-width:26px;background:var(--indigo);border-radius:4px 4px 0 0;height:${Math.max(4, (d.count / max) * 44)}px"></div>
+      <div style="font-size:0.62rem;color:var(--txt2);margin-top:3px">${d.label}</div>
+    </div>`).join("");
+}
+
+// ------------------------------------------------------------------
+// DETECTION DE DOUBLONS — meme telephone ou email sur plusieurs comptes
+// ------------------------------------------------------------------
+function checkDuplicates() {
+  const box = document.getElementById("admin-duplicates-box");
+  box.textContent = "Verification...";
+  fbGet("/pr_users", all => {
+    const list = all ? Object.values(all).filter(Boolean) : [];
+    const byTel = {}, byEmail = {};
+    list.forEach(u => {
+      if (u.tel) (byTel[u.tel] = byTel[u.tel] || []).push(u);
+      if (u.email) (byEmail[u.email.toLowerCase()] = byEmail[u.email.toLowerCase()] || []).push(u);
+    });
+    const dupTel = Object.entries(byTel).filter(([,v]) => v.length > 1);
+    const dupEmail = Object.entries(byEmail).filter(([,v]) => v.length > 1);
+    if (!dupTel.length && !dupEmail.length) { box.innerHTML = '<p class="muted center">Aucun doublon detecte ✅</p>'; return; }
+    let html = "";
+    dupTel.forEach(([tel, us]) => {
+      html += `<div class="card" style="margin-top:8px"><b>📱 ${escapeHtml(tel)}</b><br><span class="muted" style="font-size:0.78rem">${us.map(u => escapeHtml(u.nom)).join(", ")}</span></div>`;
+    });
+    dupEmail.forEach(([email, us]) => {
+      html += `<div class="card" style="margin-top:8px"><b>✉️ ${escapeHtml(email)}</b><br><span class="muted" style="font-size:0.78rem">${us.map(u => escapeHtml(u.nom)).join(", ")}</span></div>`;
+    });
+    box.innerHTML = html;
+  });
+}
+
+// ------------------------------------------------------------------
+// SAUVEGARDE COMPLETE — export/import de toutes les donnees en un fichier
+// ------------------------------------------------------------------
+function exportFullBackup() {
+  const paths = ["pr_users", "pr_contacts", "pr_payments", "pr_config", "pr_reports", "pr_locations"];
+  const backup = {};
+  let pending = paths.length;
+  paths.forEach(p => {
+    fbGet("/" + p, data => {
+      backup[p] = data || null;
+      pending--;
+      if (pending === 0) {
+        const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = "sauvegarde-shaman-chooz-" + new Date().toISOString().slice(0,10) + ".json";
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        logAdminAction("Sauvegarde complete telechargee");
+      }
+    });
+  });
+}
+document.addEventListener("change", (e) => {
+  if (e.target && e.target.id === "admin-restore-input" && e.target.files[0]) {
+    const file = e.target.files[0];
+    const reader = new FileReader();
+    reader.onload = () => {
+      let data;
+      try { data = JSON.parse(reader.result); } catch (err) { showToast("Fichier invalide"); return; }
+      if (!confirm("⚠️ Ceci va REMPLACER toutes les donnees actuelles par celles du fichier. Cette action est irreversible. Continuer ?")) return;
+      const paths = Object.keys(data);
+      let pending = paths.length;
+      paths.forEach(p => {
+        fbSet("/" + p, data[p], () => {
+          pending--;
+          if (pending === 0) { logAdminAction("Sauvegarde restauree", file.name); showToast("Restauration terminee — rechargez l'app"); renderAdminUsers(); renderAdminStats(); }
+        });
+      });
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  }
+});
 
 // ------------------------------------------------------------------
 // MESSAGE DE DIFFUSION — visible par tous les utilisateurs en haut de l'app
@@ -2384,6 +2511,7 @@ function renderAdminUsers() {
     if (adminUserFilter === "active") users = users.filter(u => u.paymentStatus === "active");
     else if (adminUserFilter === "unpaid") users = users.filter(u => u.paymentStatus !== "active");
     else if (adminUserFilter === "blocked") users = users.filter(u => u.blocked);
+    else if (adminUserFilter === "inactive") users = users.filter(u => !u.lastSeen || (nowTs() - u.lastSeen) > 30 * 24 * 3600000);
     users.sort((a,b) => b.createdAt - a.createdAt);
     if (!users.length) { listEl.innerHTML = '<p class="muted center">Aucun resultat.</p>'; return; }
     listEl.innerHTML = users.map(u => `
@@ -2392,6 +2520,7 @@ function renderAdminUsers() {
         <div class="pin-info" onclick="openAdminUserDetail('${u.id}')" style="cursor:pointer">
           <div class="pin-name">${escapeHtml(u.nom)} ${u.blocked ? '<span style="color:var(--err);font-size:0.7rem">· BLOQUE</span>' : ''}</div>
           <div class="pin-sub">@${escapeHtml(u.pseudo)} · ${escapeHtml(u.tel||'')} · ${u.paymentStatus === 'active' ? '✅ actif' : '⏳ non actif'}</div>
+          <div class="pin-sub" style="font-size:0.68rem">Vu ${u.lastSeen ? new Date(u.lastSeen).toLocaleDateString('fr-FR') : 'jamais'}</div>
         </div>
         <div class="contact-acts" style="flex-wrap:wrap;gap:6px">
           ${u.blocked

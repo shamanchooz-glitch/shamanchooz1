@@ -808,6 +808,23 @@ body.map-fs-lock{overflow:hidden}
     <div class="card">
       <div class="card-h">📊 Vue d'ensemble</div>
       <div id="admin-stats-box" class="muted">Chargement...</div>
+      <div id="admin-growth-chart" style="display:flex;align-items:flex-end;gap:6px;height:70px;margin-top:14px"></div>
+      <p class="muted" style="font-size:0.7rem;margin-top:4px;text-align:center">Inscriptions des 7 derniers jours</p>
+    </div>
+
+    <div class="card">
+      <div class="card-h">🧬 Doublons &amp; comptes inactifs</div>
+      <p class="muted" style="margin-bottom:10px">Verifie les numeros/emails utilises sur plusieurs comptes, et les comptes inactifs depuis longtemps.</p>
+      <button class="btn btn-ghost" onclick="checkDuplicates()">🔍 Verifier les doublons</button>
+      <div id="admin-duplicates-box" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-h">💾 Sauvegarde complete</div>
+      <p class="muted" style="margin-bottom:10px">Telecharge toutes les donnees de l'application (utilisateurs, contacts, paiements, config) dans un seul fichier, pour ne jamais rien perdre.</p>
+      <button class="btn btn-primary" onclick="exportFullBackup()">⬇️ Telecharger la sauvegarde (JSON)</button>
+      <label class="btn btn-ghost" style="margin-top:8px" for="admin-restore-input">⬆️ Restaurer une sauvegarde</label>
+      <input type="file" accept="application/json" id="admin-restore-input" class="hidden"/>
     </div>
 
     <div class="card">
@@ -925,6 +942,7 @@ body.map-fs-lock{overflow:hidden}
         <div class="tab-chip" data-af="active" onclick="setAdminUserFilter('active',this)">Actifs</div>
         <div class="tab-chip" data-af="unpaid" onclick="setAdminUserFilter('unpaid',this)">Non actifs</div>
         <div class="tab-chip" data-af="blocked" onclick="setAdminUserFilter('blocked',this)">Bloques</div>
+        <div class="tab-chip" data-af="inactive" onclick="setAdminUserFilter('inactive',this)">Inactifs 30j+</div>
       </div>
       <button class="btn-sm btn-ghost" style="margin-bottom:12px" onclick="exportUsersCSV()">⬇️ Exporter les utilisateurs (CSV)</button>
       <div id="admin-users-list"></div>
