@@ -12,6 +12,36 @@
 // -> copiez l'URL (ex: https://mon-projet-xxxxx-default-rtdb.firebaseio.com)
 const FB = "https://proche-app-default-rtdb.firebaseio.com";
 
+// Cle API Web de VOTRE projet Firebase (PAS un secret a proteger absolument,
+// mais necessaire pour l'authentification anonyme). A trouver dans :
+// Console Firebase -> ⚙️ Parametres du projet -> General -> "Cle API Web"
+const FIREBASE_API_KEY = "AIzaSyA_zspv37vMzLlbYpqt3Fjj5MB9pYTO1gg";
+
+// ------------------------------------------------------------------
+// AUTHENTIFICATION ANONYME — chaque appareil qui ouvre l'app recoit un
+// jeton avant de pouvoir lire/ecrire dans la base. Ca empeche un simple
+// visiteur qui trouverait l'adresse de la base (sans passer par l'app)
+// d'y acceder — seule l'application, en s'authentifiant, le peut.
+let fbAuthToken = null;
+let fbAuthPromise = null;
+function getFirebaseAuthToken() {
+  if (fbAuthToken) return Promise.resolve(fbAuthToken);
+  if (fbAuthPromise) return fbAuthPromise;
+  if (!FIREBASE_API_KEY || FIREBASE_API_KEY.startsWith("COLLEZ_ICI")) return Promise.resolve(null);
+  fbAuthPromise = fetch("https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=" + FIREBASE_API_KEY, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ returnSecureToken: true })
+  }).then(r => r.json()).then(d => {
+    if (!d.idToken) { fbAuthPromise = null; return null; }
+    fbAuthToken = d.idToken;
+    // Le jeton expire au bout d'1h : on le renouvelle un peu avant, en arriere-plan
+    setTimeout(() => { fbAuthToken = null; fbAuthPromise = null; }, ((d.expiresIn || 3600) - 120) * 1000);
+    return fbAuthToken;
+  }).catch(() => { fbAuthPromise = null; return null; });
+  return fbAuthPromise;
+}
+
 // ------------------------------------------------------------------
 // 2) ETAT GLOBAL
 // ------------------------------------------------------------------
@@ -64,28 +94,36 @@ function fbFetchWithTimeout(url, options, ms) {
   return fetch(url, Object.assign({}, options, { signal: ctrl.signal })).finally(() => clearTimeout(timer));
 }
 function fbGet(path, cb) {
-  fbFetchWithTimeout(FB + path + ".json")
-    .then(r => r.json())
-    .then(d => cb(d))
-    .catch(() => cb(null));
+  getFirebaseAuthToken().then(token => {
+    fbFetchWithTimeout(FB + path + ".json" + (token ? "?auth=" + token : ""))
+      .then(r => r.json())
+      .then(d => cb(d))
+      .catch(() => cb(null));
+  });
 }
 function fbSet(path, data, cb, timeoutMs) {
-  fbFetchWithTimeout(FB + path + ".json", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data)
-  }, timeoutMs).then(r => r.ok).then(ok => cb && cb(ok)).catch(() => cb && cb(false));
+  getFirebaseAuthToken().then(token => {
+    fbFetchWithTimeout(FB + path + ".json" + (token ? "?auth=" + token : ""), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    }, timeoutMs).then(r => r.ok).then(ok => cb && cb(ok)).catch(() => cb && cb(false));
+  });
 }
 function fbPatch(path, data, cb) {
-  fbFetchWithTimeout(FB + path + ".json", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data)
-  }).then(r => r.ok).then(ok => cb && cb(ok)).catch(() => cb && cb(false));
+  getFirebaseAuthToken().then(token => {
+    fbFetchWithTimeout(FB + path + ".json" + (token ? "?auth=" + token : ""), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    }).then(r => r.ok).then(ok => cb && cb(ok)).catch(() => cb && cb(false));
+  });
 }
 function fbDelete(path, cb) {
-  fbFetchWithTimeout(FB + path + ".json", { method: "DELETE" })
-    .then(r => r.ok).then(ok => cb && cb(ok)).catch(() => cb && cb(false));
+  getFirebaseAuthToken().then(token => {
+    fbFetchWithTimeout(FB + path + ".json" + (token ? "?auth=" + token : ""), { method: "DELETE" })
+      .then(r => r.ok).then(ok => cb && cb(ok)).catch(() => cb && cb(false));
+  });
 }
 function genUid(prefix) {
   return (prefix||"") + Date.now() + "-" + Math.random().toString(36).slice(2, 9);
