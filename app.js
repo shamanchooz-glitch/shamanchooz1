@@ -2276,21 +2276,24 @@ function saveAdminContact() {
   });
 }
 
+let cloudinaryFieldsLocked = true;
 function toggleCloudinaryLock() {
-  ["admin-cloudinary-name", "admin-cloudinary-preset"].forEach((id, i) => {
+  const btn = document.getElementById("cloudinary-lock-btn");
+  if (cloudinaryFieldsLocked) {
+    if (!confirm("Deverrouiller ces champs ? Une erreur ici empechera les envois vers la galerie de fonctionner.")) return;
+    cloudinaryFieldsLocked = false;
+    btn.textContent = "🔓";
+  } else {
+    cloudinaryFieldsLocked = true;
+    btn.textContent = "🔒";
+  }
+  ["admin-cloudinary-name", "admin-cloudinary-preset"].forEach(id => {
     const inp = document.getElementById(id);
-    if (i === 0) {
-      const btn = document.getElementById("cloudinary-lock-btn");
-      if (inp.hasAttribute("readonly")) {
-        if (!confirm("Deverrouiller ces champs ? Une erreur ici empechera les envois vers la galerie de fonctionner.")) return;
-        btn.textContent = "🔓";
-      } else {
-        btn.textContent = "🔒";
-      }
-    }
-    if (inp.hasAttribute("readonly")) { inp.removeAttribute("readonly"); inp.style.background = "#fff"; }
-    else { inp.setAttribute("readonly", "readonly"); inp.style.background = "var(--panel2)"; }
+    if (!inp) return;
+    if (cloudinaryFieldsLocked) { inp.setAttribute("readonly", "readonly"); inp.style.background = "var(--panel2)"; }
+    else { inp.removeAttribute("readonly"); inp.style.background = "#fff"; }
   });
+  if (!cloudinaryFieldsLocked) document.getElementById("admin-cloudinary-name").focus();
 }
 function saveCloudinaryConfig() {
   const cloudName = gv("admin-cloudinary-name"), preset = gv("admin-cloudinary-preset");
@@ -2301,6 +2304,7 @@ function saveCloudinaryConfig() {
       const inp = document.getElementById(id);
       inp.setAttribute("readonly", "readonly"); inp.style.background = "var(--panel2)";
     });
+    cloudinaryFieldsLocked = true;
     document.getElementById("cloudinary-lock-btn").textContent = "🔒";
   });
 }
