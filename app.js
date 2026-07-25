@@ -473,11 +473,13 @@ function showMainApp() {
   checkBroadcast();
   checkMaintenance();
   fbPatch("/pr_users/" + currentUser.id, { lastSeen: nowTs() });
+  resumeLocationSharingIfNeeded();
   history.replaceState({ layer: "tab", screen: "map" }, "", "#map");
   document.getElementById("me-nom").textContent = currentUser.nom;
   document.getElementById("me-pseudo").textContent = "@" + currentUser.pseudo;
   renderMyAvatar();
   document.getElementById("set-nom").value = currentUser.nom;
+  renderGallery();
   fillPhoneFields("set-cc", "set-tel", currentUser.tel);
   document.getElementById("set-email").value = currentUser.email || "";
   document.getElementById("set-bio").value = currentUser.bio || "";
@@ -778,6 +780,26 @@ function toggleShareLocation(on) {
   if (on) startSharingLocation(); else stopSharingLocation();
 }
 
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && currentUser && !sharingLocation) {
+    resumeLocationSharingIfNeeded();
+  }
+});
+
+// Au demarrage de l'app, si l'utilisateur avait active le partage la derniere
+// fois (et ne l'a jamais desactive manuellement depuis), on le reprend tout
+// seul — pas besoin de retoucher l'interrupteur a chaque fois.
+function resumeLocationSharingIfNeeded() {
+  if (!currentUser) return;
+  fbGet("/pr_locations/" + currentUser.id, loc => {
+    if (loc && loc.sharing) {
+      const chk = document.getElementById("chk-share");
+      if (chk) chk.checked = true;
+      startSharingLocation();
+    }
+  });
+}
+
 function startSharingLocation() {
   if (!navigator.geolocation) { showToast("Geolocalisation non disponible sur cet appareil"); document.getElementById("chk-share").checked = false; return; }
   navigator.geolocation.getCurrentPosition(() => {
@@ -1029,9 +1051,11 @@ function refreshContacts() {
                   <div class="pin-info" onclick="openProfileModal('${id}')"><div class="pin-name">${u.nom}</div><div class="pin-sub">@${u.pseudo}${live ? ' · 🟢 en direct' : ' · position non partagee'}</div></div>
                   <div class="contact-acts">
                     ${!live ? `<button class="ic-btn" title="Demander l'activation du partage" onclick="askActivateSharing('${(u.nom||'').replace(/'/g,"")}','${u.tel||''}','${u.email||''}')">📨</button>` : ''}
-                    <button class="ic-btn ic-call" onclick="startCall('${id}','audio')">📞</button>
-                    <button class="ic-btn ic-video" onclick="startCall('${id}','video')">🎥</button>
-                    <button class="ic-btn ic-msg" onclick="openChat('${id}','${(u.nom||'').replace(/'/g,"")}')">💬</button>
+                    <button class="ic-btn ic-call" title="Appel audio (dans l'app)" onclick="startCall('${id}','audio')">📞</button>
+                    <button class="ic-btn ic-video" title="Appel video (dans l'app)" onclick="startCall('${id}','video')">🎥</button>
+                    <button class="ic-btn ic-msg" title="Message dans l'app" onclick="openChat('${id}','${(u.nom||'').replace(/'/g,"")}')">💬</button>
+                    ${u.tel ? `<a class="ic-btn" title="SMS" href="sms:+${normalizePhoneForLink(u.tel)}" style="text-decoration:none;background:#E9E4FF">📩</a>` : ''}
+                    ${u.tel ? `<a class="ic-btn" title="WhatsApp" href="${waLink(u.tel,'')}" target="_blank" rel="noopener" style="text-decoration:none;background:#25D366;color:#fff">🟢</a>` : ''}
                   </div>
                 </div>`;
               });
@@ -1991,15 +2015,173 @@ function closeStatusView(e) {
 }
 
 setInterval(() => { if (currentUser) refreshStatuses(); }, 15000);
-setInterval(() => { if (currentUser && currentTabName !== "contacts") refreshContactsBadgeOnly(); }, 15000);
+setInterval(() => { if (currentUser && currentTabName !== "contacts") refreshContactsBadgeOnly(); }, 6000);
+let lastKnownPendingCount = 0;
 function refreshContactsBadgeOnly() {
   fbGet("/pr_contacts/" + currentUser.id, (data) => {
     const badge = document.getElementById("badge-contacts");
     if (!badge) return;
     const pendingInCount = data ? Object.keys(data).filter(u => data[u].status === "pending" && data[u].requestedBy !== currentUser.id).length : 0;
     if (pendingInCount > 0) { badge.textContent = pendingInCount; badge.classList.remove("hidden"); } else badge.classList.add("hidden");
+    if (pendingInCount > lastKnownPendingCount) notifyNewRequest(pendingInCount - lastKnownPendingCount);
+    lastKnownPendingCount = pendingInCount;
   });
 }
+// Notification native (si autorisee) pour reagir tout de suite a une nouvelle demande,
+// meme si la personne n'est pas en train de regarder l'onglet Proches.
+function notifyNewRequest(count) {
+  if (navigator.vibrate) navigator.vibrate(200);
+  if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+    try {
+      new Notification("Shaman Chooz Call Center", {
+        body: count > 1 ? count + " nouvelles demandes de proches" : "Nouvelle demande de proche a accepter",
+        icon: "icon-192.png"
+      });
+    } catch (e) {}
+  } else {
+    showToast("📨 Nouvelle demande de proche recue");
+  }
+}
+// ------------------------------------------------------------------
+// GALERIE PERSONNELLE — photos/videos/documents conserves pour plus tard
+// ou publiables directement en statut.
+//
+// Deux modes possibles :
+// 1) Cloudinary configure (recommande) : les fichiers partent directement
+//    vers Cloudinary (envoi "non signe", sans exposer de secret dans le
+//    code), seul le lien est garde dans la base — rapide et leger.
+// 2) Sinon (repli automatique) : le fichier est garde directement dans la
+//    base de donnees, avec une limite de 50 Mo par personne pour que tout
+//    reste rapide et gratuit.
+// ------------------------------------------------------------------
+const GALLERY_MAX_BYTES = 50 * 1024 * 1024;
+let cloudinaryConfigCache = undefined;
+function getCloudinaryConfig(cb) {
+  if (cloudinaryConfigCache !== undefined) { cb(cloudinaryConfigCache); return; }
+  fbGet("/pr_config/cloudinary", cfg => {
+    cloudinaryConfigCache = (cfg && cfg.cloudName && cfg.preset) ? cfg : null;
+    cb(cloudinaryConfigCache);
+  });
+}
+function itemSrc(it) { return it.url || it.dataUrl; }
+function handleGalleryUpload(file, type) {
+  if (!file) return;
+  getCloudinaryConfig(cfg => {
+    if (cfg) uploadToCloudinary(file, type, cfg);
+    else uploadToLocalGallery(file, type);
+  });
+}
+function uploadToCloudinary(file, type, cfg) {
+  showToast("Envoi en cours...");
+  const form = new FormData();
+  form.append("file", file);
+  form.append("upload_preset", cfg.preset);
+  fetch("https://api.cloudinary.com/v1_1/" + cfg.cloudName + "/auto/upload", { method: "POST", body: form })
+    .then(r => r.json())
+    .then(data => {
+      if (!data.secure_url) { showToast("Echec de l'envoi vers le stockage — vérifiez la configuration"); return; }
+      const id = genUid("G-");
+      fbSet("/pr_gallery/" + currentUser.id + "/" + id, {
+        type, name: file.name, url: data.secure_url, size: file.size, ts: nowTs()
+      }, ok => {
+        if (ok) { showToast("Ajoute a la galerie"); renderGallery(); }
+        else showToast("Echec de l'enregistrement");
+      });
+    })
+    .catch(() => showToast("Echec de l'envoi — verifiez votre connexion"));
+}
+function uploadToLocalGallery(file, type) {
+  fbGet("/pr_gallery/" + currentUser.id, items => {
+    const used = items ? Object.values(items).reduce((s, it) => s + (it.size || 0), 0) : 0;
+    if (used + file.size > GALLERY_MAX_BYTES) {
+      showToast("Espace galerie plein (50 Mo max) — supprimez un element, ou configurez Cloudinary pour plus d'espace");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const id = genUid("G-");
+      fbSet("/pr_gallery/" + currentUser.id + "/" + id, {
+        type, name: file.name, dataUrl: reader.result, size: file.size, ts: nowTs()
+      }, ok => {
+        if (ok) { showToast("Ajoute a la galerie"); renderGallery(); }
+        else showToast("Echec de l'enregistrement — fichier peut-etre trop lourd");
+      }, 120000);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+function renderGallery() {
+  const grid = document.getElementById("gallery-grid");
+  if (!grid || !currentUser) return;
+  fbGet("/pr_gallery/" + currentUser.id, items => {
+    const list = items ? Object.entries(items).map(([id, it]) => ({ id, ...it })).sort((a,b) => b.ts - a.ts) : [];
+    const usedLocal = list.filter(it => !it.url).reduce((s, it) => s + (it.size || 0), 0);
+    getCloudinaryConfig(cfg => {
+      if (cfg) {
+        document.getElementById("gallery-used-label").textContent = list.length + " fichier(s) — stockage Cloudinary";
+        document.getElementById("gallery-used-bar").style.width = "0%";
+      } else {
+        document.getElementById("gallery-used-label").textContent = (usedLocal / 1024 / 1024).toFixed(1) + " Mo utilises";
+        document.getElementById("gallery-used-bar").style.width = Math.min(100, (usedLocal / GALLERY_MAX_BYTES) * 100) + "%";
+      }
+    });
+    if (!list.length) { grid.innerHTML = '<p class="muted center">Votre galerie est vide.</p>'; return; }
+    grid.innerHTML = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">' + list.map(it => `
+      <div style="position:relative;border-radius:10px;overflow:hidden;background:var(--panel2);aspect-ratio:1;cursor:pointer" onclick="openGalleryItem('${it.id}')">
+        ${it.type === "photo" ? `<img src="${itemSrc(it)}" style="width:100%;height:100%;object-fit:cover"/>` :
+          it.type === "video" ? `<video src="${itemSrc(it)}" style="width:100%;height:100%;object-fit:cover"></video><div style="position:absolute;top:4px;right:4px;font-size:0.9rem">🎥</div>` :
+          `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:2rem">📄</div>`}
+      </div>`).join("") + '</div>';
+    window._galleryItems = list;
+  });
+}
+function openGalleryItem(id) {
+  const it = (window._galleryItems || []).find(x => x.id === id);
+  if (!it) return;
+  const src = itemSrc(it);
+  const overlay = document.createElement("div");
+  overlay.className = "modal-bg open";
+  overlay.style.zIndex = "9700";
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `<div class="modal-sheet" style="max-width:420px">
+    <div class="modal-handle"></div>
+    <button type="button" class="icon-btn" style="position:absolute;top:14px;right:14px" onclick="this.closest('.modal-bg').remove()">✕</button>
+    <div class="card-h">${escapeHtml(it.name || "Fichier")}</div>
+    <div style="margin:12px 0">
+      ${it.type === "photo" ? `<img src="${src}" style="width:100%;border-radius:12px"/>` :
+        it.type === "video" ? `<video src="${src}" controls style="width:100%;border-radius:12px"></video>` :
+        `<p class="muted">Document — ${((it.size||0)/1024/1024).toFixed(1)} Mo</p>`}
+    </div>
+    <div class="row2">
+      ${it.type !== "document" ? `<button class="btn btn-primary" onclick="useGalleryItemAsStatus('${it.id}')">⭐ Mettre en statut</button>` : `<a class="btn btn-primary" style="text-decoration:none" href="${src}" download="${escapeHtml(it.name||'fichier')}" target="_blank" rel="noopener">⬇️ Telecharger</a>`}
+      <button class="btn btn-danger" onclick="deleteGalleryItem('${it.id}')">🗑️ Supprimer</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+}
+function useGalleryItemAsStatus(id) {
+  const it = (window._galleryItems || []).find(x => x.id === id);
+  if (!it) return;
+  const src = itemSrc(it);
+  document.querySelectorAll(".modal-bg.open").forEach(m => m.remove());
+  openStatusCreate();
+  if (it.type === "photo") { pendingStatusPhoto = src; const img = document.getElementById("status-photo-preview"); if (img) { img.src = src; img.classList.remove("hidden"); } }
+  else if (it.type === "video") { pendingStatusVideo = src; const v = document.getElementById("status-video-preview"); if (v) { v.src = src; v.classList.remove("hidden"); } document.getElementById("btn-remove-status-video").classList.remove("hidden"); }
+  showToast("Ajoute — vous pouvez maintenant publier le statut");
+}
+function deleteGalleryItem(id) {
+  if (!confirm("Supprimer ce fichier de votre galerie ?")) return;
+  fbDelete("/pr_gallery/" + currentUser.id + "/" + id, () => {
+    document.querySelectorAll(".modal-bg.open").forEach(m => m.remove());
+    showToast("Supprime (le fichier original reste sur Cloudinary si stocke la-bas, mais n'est plus lie a votre galerie)");
+    renderGallery();
+  });
+}
+document.addEventListener("change", (e) => {
+  if (e.target && e.target.id === "gallery-upload-photo" && e.target.files[0]) handleGalleryUpload(e.target.files[0], "photo");
+  if (e.target && e.target.id === "gallery-upload-video" && e.target.files[0]) handleGalleryUpload(e.target.files[0], "video");
+  if (e.target && e.target.id === "gallery-upload-doc" && e.target.files[0]) handleGalleryUpload(e.target.files[0], "document");
+});
 
 // ------------------------------------------------------------------
 // 14) LOGO DE L'APPLICATION (uploadable par l'admin, visible par tous)
@@ -2094,11 +2276,58 @@ function saveAdminContact() {
   });
 }
 
+function toggleCloudinaryLock() {
+  ["admin-cloudinary-name", "admin-cloudinary-preset"].forEach((id, i) => {
+    const inp = document.getElementById(id);
+    if (i === 0) {
+      const btn = document.getElementById("cloudinary-lock-btn");
+      if (inp.hasAttribute("readonly")) {
+        if (!confirm("Deverrouiller ces champs ? Une erreur ici empechera les envois vers la galerie de fonctionner.")) return;
+        btn.textContent = "🔓";
+      } else {
+        btn.textContent = "🔒";
+      }
+    }
+    if (inp.hasAttribute("readonly")) { inp.removeAttribute("readonly"); inp.style.background = "#fff"; }
+    else { inp.setAttribute("readonly", "readonly"); inp.style.background = "var(--panel2)"; }
+  });
+}
+function saveCloudinaryConfig() {
+  const cloudName = gv("admin-cloudinary-name"), preset = gv("admin-cloudinary-preset");
+  fbSet("/pr_config/cloudinary", { cloudName, preset }, ok => {
+    if (!ok) { showToast("Erreur d'enregistrement"); return; }
+    showToast("Configuration Cloudinary enregistree");
+    ["admin-cloudinary-name", "admin-cloudinary-preset"].forEach(id => {
+      const inp = document.getElementById(id);
+      inp.setAttribute("readonly", "readonly"); inp.style.background = "var(--panel2)";
+    });
+    document.getElementById("cloudinary-lock-btn").textContent = "🔒";
+  });
+}
+function toggleGmapsKeyLock() {
+  const inp = document.getElementById("admin-gmaps-key");
+  const btn = document.getElementById("gmaps-key-lock-btn");
+  if (inp.hasAttribute("readonly")) {
+    if (!confirm("Deverrouiller ce champ ? Une modification incorrecte peut empecher la carte de fonctionner.")) return;
+    inp.removeAttribute("readonly");
+    inp.style.background = "#fff";
+    btn.textContent = "🔓";
+    inp.focus();
+  } else {
+    inp.setAttribute("readonly", "readonly");
+    inp.style.background = "var(--panel2)";
+    btn.textContent = "🔒";
+  }
+}
 function saveGoogleMapsKey() {
   const key = gv("admin-gmaps-key");
   fbSet("/pr_config/googleMapsKey", key, (ok) => {
     if (!ok) { showToast("Erreur d'enregistrement"); return; }
     showToast(key ? "Cle Google Maps enregistree — rechargez l'app pour l'utiliser" : "Cle retiree — retour a la carte gratuite");
+    const inp = document.getElementById("admin-gmaps-key");
+    inp.setAttribute("readonly", "readonly");
+    inp.style.background = "var(--panel2)";
+    document.getElementById("gmaps-key-lock-btn").textContent = "🔒";
   });
 }
 
@@ -2200,6 +2429,10 @@ function doAdminLogin() {
     });
     fbGet("/pr_config/googleMapsKey", key => {
       document.getElementById("admin-gmaps-key").value = key || "";
+    });
+    fbGet("/pr_config/cloudinary", cfg => {
+      document.getElementById("admin-cloudinary-name").value = (cfg && cfg.cloudName) || "";
+      document.getElementById("admin-cloudinary-preset").value = (cfg && cfg.preset) || "";
     });
     document.getElementById("admin-pwd-current").value = "";
     document.getElementById("admin-pwd-new").value = "";
@@ -2899,6 +3132,32 @@ function shareAppLink() {
   }
 }
 
+function adminViewUserGallery(uid, nom) {
+  fbGet("/pr_gallery/" + uid, items => {
+    const list = items ? Object.entries(items).map(([id, it]) => ({ id, ...it })).sort((a,b) => b.ts - a.ts) : [];
+    const overlay = document.createElement("div");
+    overlay.className = "modal-bg open";
+    overlay.style.zIndex = "9700";
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    let html = `<div class="modal-sheet" style="max-width:460px">
+      <div class="modal-handle"></div>
+      <button type="button" class="icon-btn" style="position:absolute;top:14px;right:14px" onclick="this.closest('.modal-bg').remove()">✕</button>
+      <div class="card-h">🗂️ Galerie de ${escapeHtml(nom)}</div>`;
+    if (!list.length) {
+      html += '<p class="muted center" style="margin-top:14px">Galerie vide.</p>';
+    } else {
+      html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px">' + list.map(it => `
+        <div style="border-radius:10px;overflow:hidden;background:var(--panel2);aspect-ratio:1">
+          ${it.type === "photo" ? `<img src="${it.dataUrl}" style="width:100%;height:100%;object-fit:cover"/>` :
+            it.type === "video" ? `<video src="${it.dataUrl}" style="width:100%;height:100%;object-fit:cover"></video>` :
+            `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:2rem">📄</div>`}
+        </div>`).join("") + '</div>';
+    }
+    overlay.innerHTML = html;
+    document.body.appendChild(overlay);
+  });
+}
+
 function openAdminUserDetail(uid) {
   fbGet("/pr_users/" + uid, u => {
     if (!u) return;
@@ -2931,6 +3190,7 @@ function openAdminUserDetail(uid) {
         <button class="btn btn-ghost" style="margin-bottom:14px" onclick="adminDeleteUser('${u.id}','${u.nom.replace(/'/g,"")}');closeProfileModal()">🗑️ Supprimer ce compte</button>
         <button class="btn btn-ghost" style="margin-bottom:14px" onclick="adminChangeUserPassword('${u.id}','${u.nom.replace(/'/g,"")}')">🔑 Changer le mot de passe de ce compte</button>
         <button class="btn btn-ghost" style="margin-bottom:14px" onclick="printUserSheet('${u.id}')">🖨️ Imprimer la fiche complete</button>
+        <button class="btn btn-ghost" style="margin-bottom:14px" onclick="adminViewUserGallery('${u.id}','${u.nom.replace(/'/g,"")}')">🗂️ Voir la galerie de cette personne</button>
         <div class="lbl" style="margin-top:0">Historique des factures (${list.length})</div>`;
       if (!list.length) {
         html += '<p class="muted center" style="padding:10px 0">Aucun paiement enregistre pour ce compte.</p>';
