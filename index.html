@@ -486,6 +486,13 @@ body.map-fs-lock{overflow:hidden}
         <button type="button" class="map-fs-btn" style="right:auto;left:12px" onclick="centerMainMap()">🎯 Centrer ma position</button>
         <button type="button" class="map-fs-btn" id="fs-btn-map-container-main" onclick="toggleMapFullscreen('map-container-main')">⛶ Plein ecran</button>
       </div>
+      <div class="card" id="route-card">
+        <div class="card-h">🧭 Itineraire</div>
+        <p class="muted" style="margin-bottom:10px">Depuis votre position actuelle jusqu'a une destination.</p>
+        <input class="inp" id="route-destination-input" placeholder="Ex: Carrefour Academie, Abidjan..."/>
+        <button class="btn btn-primary" style="margin-top:10px" onclick="calculateRoute()">🧭 Calculer l'itineraire</button>
+        <div id="route-result" style="margin-top:12px"></div>
+      </div>
       <div class="map-legend" id="contacts-on-map"></div>
     </div>
 
@@ -552,7 +559,8 @@ body.map-fs-lock{overflow:hidden}
           <div style="position:relative;display:inline-block">
             <div class="avatar" id="me-avatar" style="width:90px;height:90px;font-size:2rem;object-fit:cover"></div>
             <label for="profile-photo-camera" title="Prendre une photo" style="position:absolute;bottom:0;right:26px;width:32px;height:32px;border-radius:50%;background:var(--indigo);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;border:3px solid #fff;font-size:0.85rem">📷</label>
-            <label for="profile-photo-gallery" title="Depuis la galerie" style="position:absolute;bottom:0;right:-6px;width:32px;height:32px;border-radius:50%;background:var(--teal);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;border:3px solid #fff;font-size:0.85rem">🖼️</label>
+            <label for="profile-photo-gallery" title="Depuis la galerie du telephone" style="position:absolute;bottom:0;right:-6px;width:32px;height:32px;border-radius:50%;background:var(--teal);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;border:3px solid #fff;font-size:0.85rem">🖼️</label>
+            <button type="button" title="Depuis ma galerie" onclick="pickProfilePhotoFromGallery()" style="position:absolute;bottom:-30px;right:32px;width:32px;height:32px;border-radius:50%;background:var(--amber);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;border:3px solid #fff;font-size:0.85rem">🗂️</button>
             <input type="file" accept="image/*" capture="environment" id="profile-photo-camera" class="hidden"/>
             <input type="file" accept="image/*" id="profile-photo-gallery" class="hidden"/>
           </div>
@@ -578,7 +586,7 @@ body.map-fs-lock{overflow:hidden}
         <div class="card-h">🗂️ Ma galerie</div>
         <p class="muted" style="margin-bottom:10px">Conservez vos photos, videos et documents pour les reutiliser plus tard, ou les publier directement en statut.</p>
         <div style="background:var(--panel2);border-radius:10px;padding:8px 12px;margin-bottom:12px">
-          <div style="display:flex;justify-content:space-between;font-size:0.76rem;margin-bottom:4px"><span id="gallery-used-label">0 Mo utilises</span><span>sur 50 Mo</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:0.76rem;margin-bottom:4px"><span id="gallery-used-label">0 Mo utilises</span><span id="gallery-used-max">sur 50 Mo</span></div>
           <div style="height:6px;background:var(--line);border-radius:4px;overflow:hidden"><div id="gallery-used-bar" style="height:100%;width:0%;background:var(--indigo)"></div></div>
         </div>
         <div class="row2">
@@ -732,8 +740,9 @@ body.map-fs-lock{overflow:hidden}
     <label class="lbl">Photo (optionnel)</label>
     <div class="row2">
       <label class="btn btn-ghost" for="status-photo-camera">📷 Prendre une photo</label>
-      <label class="btn btn-ghost" for="status-photo-gallery">🖼️ Depuis la galerie</label>
+      <label class="btn btn-ghost" for="status-photo-gallery">🖼️ Galerie du telephone</label>
     </div>
+    <button type="button" class="btn btn-ghost" style="margin-top:8px" onclick="pickStatusPhotoFromGallery()">🗂️ Depuis ma galerie</button>
     <input type="file" accept="image/*" capture="environment" id="status-photo-camera" class="hidden"/>
     <input type="file" accept="image/*" id="status-photo-gallery" class="hidden"/>
     <img id="status-photo-preview" class="hidden" style="width:100%;border-radius:12px;margin-top:10px;max-height:220px;object-fit:cover"/>
@@ -742,8 +751,9 @@ body.map-fs-lock{overflow:hidden}
     <label class="lbl">Video (optionnel — 20 Mo max)</label>
     <div class="row2">
       <button type="button" class="btn btn-ghost" onclick="openStatusVideoRecorder()">🎬 Filmer (arret auto a 20 Mo)</button>
-      <label class="btn btn-ghost" for="status-video-gallery">🎞️ Depuis la galerie</label>
+      <label class="btn btn-ghost" for="status-video-gallery">🎞️ Galerie du telephone</label>
     </div>
+    <button type="button" class="btn btn-ghost" style="margin-top:8px" onclick="pickStatusVideoFromGallery()">🗂️ Depuis ma galerie</button>
     <input type="file" accept="video/*" id="status-video-gallery" class="hidden"/>
     <video id="status-video-preview" class="hidden" controls style="width:100%;border-radius:12px;margin-top:10px;max-height:220px"></video>
     <button class="btn btn-ghost hidden" id="btn-remove-status-video" onclick="removeStatusVideo()" style="margin-top:8px">✕ Retirer la video</button>

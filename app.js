@@ -642,6 +642,157 @@ function setAdminTrackMapView(which) { switchBaseLayer(adminTrackMap, adminLayer
 // ------------------------------------------------------------------
 // PLEIN ECRAN POUR LES CARTES — reutilisable partout (utilisateur et admin)
 // ------------------------------------------------------------------
+// ------------------------------------------------------------------
+// ITINERAIRE — position actuelle -> destination saisie, avec le trajet
+// trace sur la carte et la distance/duree affichees.
+// Utilise Nominatim (recherche d'adresse) et OSRM (calcul d'itineraire),
+// deux services gratuits d'OpenStreetMap, sans cle a configurer — donc
+// fonctionne meme sans clé Google Maps.
+// ------------------------------------------------------------------
+// ------------------------------------------------------------------
+// ITINERAIRE DETAILLE — position actuelle -> destination saisie :
+// - trajet trace sur la carte
+// - instructions virage par virage (meme les petits), avec noms de rue
+// - quartier de depart et d'arrivee
+// - lieux/activites reperes le long du trajet
+// Services gratuits et sans cle : Nominatim (adresses/quartiers), OSRM
+// (calcul d'itineraire + etapes), Overpass (lieux d'interet).
+// ------------------------------------------------------------------
+let routeLayer = null;
+let routeMarkers = [];
+function calculateRoute() {
+  const dest = gv("route-destination-input");
+  const resultEl = document.getElementById("route-result");
+  if (!dest) { showToast("Entrez une destination"); return; }
+  resultEl.innerHTML = '<p class="muted center">Recherche de la destination...</p>';
+  navigator.geolocation.getCurrentPosition(pos => {
+    const from = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+    fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=1&q=" + encodeURIComponent(dest))
+      .then(r => r.json())
+      .then(results => {
+        if (!results || !results.length) { resultEl.innerHTML = '<p class="muted center">Destination introuvable — precisez la ville ou le quartier</p>'; return; }
+        const to = { lat: parseFloat(results[0].lat), lon: parseFloat(results[0].lon) };
+        const destQuartier = pickQuartierName(results[0].address);
+        resultEl.innerHTML = '<p class="muted center">Calcul de l\'itineraire detaille...</p>';
+        Promise.all([
+          fetch(`https://router.project-osrm.org/route/v1/driving/${from.lon},${from.lat};${to.lon},${to.lat}?overview=full&geometries=geojson&steps=true&annotations=false`).then(r => r.json()),
+          fetch(`https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&lat=${from.lat}&lon=${from.lon}`).then(r => r.json()).catch(() => null)
+        ]).then(([data, fromAddr]) => {
+          if (!data.routes || !data.routes.length) { resultEl.innerHTML = '<p class="muted center">Aucun itineraire trouve</p>'; return; }
+          const route = data.routes[0];
+          const km = (route.distance / 1000).toFixed(1);
+          const min = Math.round(route.duration / 60);
+          const coords = route.geometry.coordinates.map(c => [c[1], c[0]]);
+          const fromQuartier = fromAddr ? pickQuartierName(fromAddr.address) : "";
+          drawRouteOnMap(coords, [from.lat, from.lon], [to.lat, to.lon]);
+          const steps = (route.legs[0].steps || []).map(stepToInstruction).filter(Boolean);
+          resultEl.innerHTML = `
+            <div style="background:var(--panel2);border-radius:12px;padding:12px">
+              <b>${escapeHtml(results[0].display_name.split(",").slice(0,2).join(", "))}</b>
+              <div class="muted" style="font-size:0.76rem;margin-top:2px">${fromQuartier ? "Depuis "+escapeHtml(fromQuartier) : ""}${fromQuartier && destQuartier ? " → " : ""}${destQuartier ? escapeHtml(destQuartier) : ""}</div>
+              <div style="display:flex;gap:14px;margin-top:8px">
+                <span>🚗 ${min} min</span>
+                <span>📏 ${km} km</span>
+              </div>
+            </div>
+            <div class="muted" style="font-weight:700;font-size:0.8rem;margin:12px 0 6px">🧭 Itineraire detaille (${steps.length} etapes)</div>
+            <div id="route-steps-list" style="max-height:260px;overflow-y:auto">
+              ${steps.map((s, i) => `<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)">
+                <div style="font-size:1.1rem;width:24px;flex:0 0 auto;text-align:center">${s.icon}</div>
+                <div style="flex:1"><div style="font-size:0.84rem">${s.text}</div><div class="muted" style="font-size:0.7rem">${s.dist}</div></div>
+              </div>`).join("")}
+            </div>
+            <div class="muted" style="font-weight:700;font-size:0.8rem;margin:14px 0 6px">📍 Lieux sur votre trajet</div>
+            <div id="route-pois-list"><p class="muted" style="font-size:0.78rem">Recherche des lieux a proximite...</p></div>
+            <button class="btn-sm btn-ghost" style="margin-top:10px" onclick="clearRoute()">✕ Effacer l'itineraire</button>`;
+          loadRoutePOIs(coords);
+        }).catch(() => { resultEl.innerHTML = '<p class="muted center">Service d\'itineraire indisponible, reessayez</p>'; });
+      })
+      .catch(() => { resultEl.innerHTML = '<p class="muted center">Recherche indisponible, reessayez</p>'; });
+  }, () => {
+    resultEl.innerHTML = '<p class="muted center">Impossible d\'acceder a votre position</p>';
+  }, { enableHighAccuracy: true, timeout: 8000 });
+}
+// Choisit le nom de quartier le plus pertinent dans les details d'adresse Nominatim
+function pickQuartierName(addr) {
+  if (!addr) return "";
+  return addr.suburb || addr.neighbourhood || addr.quarter || addr.city_district || addr.town || addr.village || addr.city || "";
+}
+// Traduit une etape OSRM (type + modificateur + nom de rue) en instruction lisible en francais
+const MANEUVER_ICONS = { "turn-left": "⬅️", "turn-right": "➡️", "turn-straight": "⬆️", "turn-slight left": "↖️", "turn-slight right": "↗️", "turn-sharp left": "↙️", "turn-sharp right": "↘️", "turn-uturn": "↩️", depart: "🚦", arrive: "🏁", roundabout: "🔄", rotary: "🔄", merge: "↗️", fork: "🔀", "end of road": "⬆️", default: "➡️" };
+function stepToInstruction(step) {
+  const m = step.maneuver || {};
+  const streetName = step.name && step.name.trim() ? step.name.trim() : null;
+  const dist = step.distance >= 1000 ? (step.distance / 1000).toFixed(1) + " km" : Math.round(step.distance) + " m";
+  let text = "";
+  let iconKey = m.type;
+  if (m.type === "depart") {
+    text = "Prenez le depart" + (streetName ? " sur " + streetName : "");
+  } else if (m.type === "arrive") {
+    text = "Vous etes arrive a destination";
+  } else if (m.type === "roundabout" || m.type === "rotary") {
+    text = "Au rond-point, prenez la " + (m.exit ? ordinalFr(m.exit) + " sortie" : "sortie") + (streetName ? " vers " + streetName : "");
+  } else if (m.type === "turn" || m.type === "new name" || m.type === "end of road" || m.type === "fork" || m.type === "merge") {
+    const dir = MODIFIER_FR[m.modifier] || "Continuez";
+    text = dir + (streetName ? " sur " + streetName : "");
+    iconKey = "turn-" + (m.modifier || "straight");
+  } else if (m.type === "continue") {
+    text = "Continuez tout droit" + (streetName ? " sur " + streetName : "");
+    iconKey = "turn-straight";
+  } else {
+    text = (streetName ? "Continuez sur " + streetName : "Continuez");
+  }
+  const icon = MANEUVER_ICONS[iconKey] || MANEUVER_ICONS.default;
+  return { text, dist, icon };
+}
+const MODIFIER_FR = { uturn: "Faites demi-tour", "sharp right": "Tournez fortement a droite", right: "Tournez a droite", "slight right": "Serrez legerement a droite", straight: "Continuez tout droit", "slight left": "Serrez legerement a gauche", left: "Tournez a gauche", "sharp left": "Tournez fortement a gauche" };
+function ordinalFr(n) { return n === 1 ? "1ere" : n + "eme"; }
+
+// Cherche les lieux/activites (commerces, restaurants, pharmacies, ecoles...) le long du trajet via Overpass (gratuit, OpenStreetMap)
+function loadRoutePOIs(coords) {
+  const lats = coords.map(c => c[0]), lons = coords.map(c => c[1]);
+  const bbox = [Math.min(...lats), Math.min(...lons), Math.max(...lats), Math.max(...lons)].join(",");
+  const query = `[out:json][timeout:15];(node["amenity"](${bbox});node["shop"](${bbox}););out center 40;`;
+  fetch("https://overpass-api.de/api/interpreter?data=" + encodeURIComponent(query))
+    .then(r => r.json())
+    .then(data => {
+      const el = document.getElementById("route-pois-list");
+      if (!el) return;
+      const items = (data.elements || []).filter(e => e.tags && e.tags.name).slice(0, 15);
+      if (!items.length) { el.innerHTML = '<p class="muted" style="font-size:0.78rem">Aucun lieu repere le long de ce trajet.</p>'; return; }
+      el.innerHTML = items.map(e => `<div style="padding:6px 0;border-bottom:1px solid var(--line);font-size:0.8rem">
+        <b>${escapeHtml(e.tags.name)}</b> <span class="muted">— ${escapeHtml(poiTypeLabel(e.tags))}</span>
+      </div>`).join("");
+    })
+    .catch(() => { const el = document.getElementById("route-pois-list"); if (el) el.innerHTML = '<p class="muted" style="font-size:0.78rem">Lieux non disponibles pour le moment.</p>'; });
+}
+function poiTypeLabel(tags) {
+  const map = { restaurant: "Restaurant", pharmacy: "Pharmacie", school: "Ecole", hospital: "Hopital", fuel: "Station essence", bank: "Banque", cafe: "Cafe", fast_food: "Restauration rapide", place_of_worship: "Lieu de culte", supermarket: "Supermarche", clinic: "Clinique", bar: "Bar", hotel: "Hotel", marketplace: "Marche" };
+  return map[tags.amenity] || map[tags.shop] || tags.amenity || tags.shop || "Lieu";
+}
+function drawRouteOnMap(coords, from, to) {
+  clearRoute();
+  if (mapProvider === "google" && gMap) {
+    const path = coords.map(c => ({ lat: c[0], lng: c[1] }));
+    routeLayer = new google.maps.Polyline({ path, strokeColor: "#4A3AFF", strokeWeight: 5 });
+    routeLayer.setMap(gMap);
+    const bounds = new google.maps.LatLngBounds();
+    path.forEach(p => bounds.extend(p));
+    gMap.fitBounds(bounds);
+  } else if (map) {
+    routeLayer = L.polyline(coords, { color: "#4A3AFF", weight: 5 }).addTo(map);
+    map.fitBounds(routeLayer.getBounds(), { padding: [30, 30] });
+  }
+}
+function clearRoute() {
+  if (routeLayer) {
+    if (mapProvider === "google") routeLayer.setMap(null);
+    else map.removeLayer(routeLayer);
+    routeLayer = null;
+  }
+  const resultEl = document.getElementById("route-result");
+  if (resultEl) resultEl.innerHTML = "";
+}
 function centerMainMap() {
   navigator.geolocation.getCurrentPosition(pos => {
     const { latitude, longitude } = pos.coords;
@@ -1568,16 +1719,54 @@ function saveBizProfile() {
   showToast("Profil professionnel enregistre");
 }
 
+// ------------------------------------------------------------------
+// SELECTEUR "DEPUIS MA GALERIE" — reutilisable partout ou l'app propose
+// une photo/video (photo de profil, statut...), en plus de l'appareil
+// photo et de la galerie du telephone qui existaient deja.
+// ------------------------------------------------------------------
+function openAppGalleryPicker(filterType, onPick) {
+  if (!currentUser) return;
+  fbGet("/pr_gallery/" + currentUser.id, items => {
+    const list = items ? Object.values(items).filter(it => it.type === filterType) : [];
+    const overlay = document.createElement("div");
+    overlay.className = "modal-bg open";
+    overlay.style.zIndex = "9800";
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    let html = `<div class="modal-sheet" style="max-width:420px">
+      <div class="modal-handle"></div>
+      <button type="button" class="icon-btn" style="position:absolute;top:14px;right:14px" onclick="this.closest('.modal-bg').remove()">✕</button>
+      <div class="card-h">🗂️ Choisir depuis ma galerie</div>`;
+    if (!list.length) {
+      html += `<p class="muted center" style="margin-top:14px">Aucune ${filterType === "photo" ? "photo" : "video"} dans votre galerie pour le moment.</p>`;
+    } else {
+      html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px">' + list.map((it, i) => `
+        <div style="border-radius:10px;overflow:hidden;background:var(--panel2);aspect-ratio:1;cursor:pointer" onclick='window._galleryPickerCallback(${i})'>
+          ${it.type === "photo" ? `<img src="${itemSrc(it)}" style="width:100%;height:100%;object-fit:cover"/>` : `<video src="${itemSrc(it)}" style="width:100%;height:100%;object-fit:cover"></video>`}
+        </div>`).join("") + '</div>';
+    }
+    html += '</div>';
+    overlay.innerHTML = html;
+    document.body.appendChild(overlay);
+    window._galleryPickerCallback = (i) => { overlay.remove(); onPick(list[i]); };
+  });
+}
+
+function setProfilePhotoFromDataUrl(dataUrl) {
+  currentUser.photo = dataUrl;
+  fbPatch("/pr_users/" + currentUser.id, { photo: dataUrl }, (ok) => {
+    if (!ok) { showToast("Photo trop lourde, reessayez avec une autre"); return; }
+    localStorage.setItem("pr_current", JSON.stringify(currentUser));
+    renderMyAvatar();
+    showToast("Photo de profil mise a jour");
+  });
+}
+function pickProfilePhotoFromGallery() {
+  openAppGalleryPicker("photo", item => setProfilePhotoFromDataUrl(itemSrc(item)));
+}
 document.addEventListener("change", (e) => {
   if (e.target && (e.target.id === "profile-photo-camera" || e.target.id === "profile-photo-gallery") && e.target.files[0]) {
     compressImage(e.target.files[0], 500, 0.7).then(dataUrl => {
-      currentUser.photo = dataUrl;
-      fbPatch("/pr_users/" + currentUser.id, { photo: dataUrl }, (ok) => {
-        if (!ok) { showToast("Photo trop lourde, reessayez avec une autre"); return; }
-        localStorage.setItem("pr_current", JSON.stringify(currentUser));
-        renderMyAvatar();
-        showToast("Photo de profil mise a jour");
-      });
+      setProfilePhotoFromDataUrl(dataUrl);
     }).catch(() => showToast("Photo illisible, reessayez"));
   }
 });
@@ -1827,6 +2016,22 @@ document.addEventListener("change", (e) => {
     reader.readAsDataURL(file);
   }
 });
+function pickStatusPhotoFromGallery() {
+  openAppGalleryPicker("photo", item => {
+    pendingStatusPhoto = itemSrc(item);
+    const img = document.getElementById("status-photo-preview");
+    img.src = pendingStatusPhoto; img.classList.remove("hidden");
+    document.getElementById("btn-remove-status-photo").classList.remove("hidden");
+  });
+}
+function pickStatusVideoFromGallery() {
+  openAppGalleryPicker("video", item => {
+    pendingStatusVideo = itemSrc(item);
+    const v = document.getElementById("status-video-preview");
+    v.src = pendingStatusVideo; v.classList.remove("hidden");
+    document.getElementById("btn-remove-status-video").classList.remove("hidden");
+  });
+}
 function removeStatusPhoto() {
   pendingStatusPhoto = null;
   document.getElementById("status-photo-preview").classList.add("hidden");
@@ -2118,10 +2323,12 @@ function renderGallery() {
     const usedLocal = list.filter(it => !it.url).reduce((s, it) => s + (it.size || 0), 0);
     getCloudinaryConfig(cfg => {
       if (cfg) {
-        document.getElementById("gallery-used-label").textContent = list.length + " fichier(s) — stockage Cloudinary";
-        document.getElementById("gallery-used-bar").style.width = "0%";
+        document.getElementById("gallery-used-label").textContent = list.length + " fichier(s)";
+        document.getElementById("gallery-used-max").textContent = "stockage Cloudinary";
+        document.getElementById("gallery-used-bar").style.width = "100%";
       } else {
         document.getElementById("gallery-used-label").textContent = (usedLocal / 1024 / 1024).toFixed(1) + " Mo utilises";
+        document.getElementById("gallery-used-max").textContent = "sur 50 Mo";
         document.getElementById("gallery-used-bar").style.width = Math.min(100, (usedLocal / GALLERY_MAX_BYTES) * 100) + "%";
       }
     });
