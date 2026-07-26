@@ -685,7 +685,15 @@ function calculateRoute() {
           const coords = route.geometry.coordinates.map(c => [c[1], c[0]]);
           const fromQuartier = fromAddr ? pickQuartierName(fromAddr.address) : "";
           drawRouteOnMap(coords, [from.lat, from.lon], [to.lat, to.lon]);
-          const steps = (route.legs[0].steps || []).map(stepToInstruction).filter(Boolean);
+          const rawSteps = route.legs[0].steps || [];
+          const steps = rawSteps.map(stepToInstruction).filter(Boolean);
+          window._navSteps = rawSteps.map(s => ({
+            ...stepToInstruction(s),
+            location: [s.maneuver.location[1], s.maneuver.location[0]], // [lat, lon]
+            distanceM: s.distance
+          }));
+          window._navTotalDistance = route.distance;
+          window._navTotalDuration = route.duration;
           resultEl.innerHTML = `
             <div style="background:var(--panel2);border-radius:12px;padding:12px">
               <b>${escapeHtml(results[0].display_name.split(",").slice(0,2).join(", "))}</b>
@@ -695,6 +703,7 @@ function calculateRoute() {
                 <span>📏 ${km} km</span>
               </div>
             </div>
+            <button class="btn btn-primary" style="margin-top:10px" onclick="startNavigation()">🚀 Demarrer la navigation</button>
             <div class="muted" style="font-weight:700;font-size:0.8rem;margin:12px 0 6px">🧭 Itineraire detaille (${steps.length} etapes)</div>
             <div id="route-steps-list" style="max-height:260px;overflow-y:auto">
               ${steps.map((s, i) => `<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)">
@@ -770,6 +779,114 @@ function poiTypeLabel(tags) {
   const map = { restaurant: "Restaurant", pharmacy: "Pharmacie", school: "Ecole", hospital: "Hopital", fuel: "Station essence", bank: "Banque", cafe: "Cafe", fast_food: "Restauration rapide", place_of_worship: "Lieu de culte", supermarket: "Supermarche", clinic: "Clinique", bar: "Bar", hotel: "Hotel", marketplace: "Marche" };
   return map[tags.amenity] || map[tags.shop] || tags.amenity || tags.shop || "Lieu";
 }
+// ------------------------------------------------------------------
+// NAVIGATION EN DIRECT — suit la position en temps reel tout au long du
+// trajet, avec l'instruction du moment affichee et mise a jour automatique
+// au fur et a mesure qu'on avance (comme un GPS classique).
+// ------------------------------------------------------------------
+let navWatchId = null;
+let navMap = null, navMarker = null, navRouteLine = null;
+let navStepIndex = 0;
+let navLastPos = null, navSmoothedHeading = null;
+function haversineMeters(a, b) {
+  const R = 6371000, toRad = d => d * Math.PI / 180;
+  const dLat = toRad(b[0] - a[0]), dLon = toRad(b[1] - a[1]);
+  const s = Math.sin(dLat/2)**2 + Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.sin(dLon/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+// Cap (direction) entre deux points, en degres (0 = nord, 90 = est...)
+function bearingBetween(a, b) {
+  const toRad = d => d * Math.PI / 180, toDeg = r => r * 180 / Math.PI;
+  const dLon = toRad(b[1] - a[1]);
+  const lat1 = toRad(a[0]), lat2 = toRad(b[0]);
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+// Lissage pour eviter que la carte tremble a cause d'un cap bruite (moyenne circulaire ponderee)
+function smoothHeading(newHeading) {
+  if (navSmoothedHeading === null) { navSmoothedHeading = newHeading; return newHeading; }
+  let diff = ((newHeading - navSmoothedHeading + 540) % 360) - 180;
+  navSmoothedHeading = (navSmoothedHeading + diff * 0.35 + 360) % 360;
+  return navSmoothedHeading;
+}
+function applyMapRotation(heading) {
+  const mapEl = document.getElementById("nav-map");
+  if (mapEl) mapEl.style.transform = "rotate(" + (-heading) + "deg)";
+}
+function startNavigation() {
+  if (!window._navSteps || !window._navSteps.length) { showToast("Calculez d'abord un itineraire"); return; }
+  navStepIndex = 0;
+  navLastPos = null; navSmoothedHeading = null;
+  document.getElementById("scr-navigation").classList.remove("hidden");
+  setTimeout(() => {
+    navMap = L.map("nav-map", { zoomControl: false, attributionControl: false }).setView(window._navSteps[0].location, 17);
+    makeBaseLayers().default.addTo(navMap);
+    const coords = window._navSteps.map(s => s.location);
+    navRouteLine = L.polyline(coords, { color: "#4A3AFF", weight: 5 }).addTo(navMap);
+    navMarker = L.circleMarker(coords[0], { radius: 9, color: "#1B7A5C", fillColor: "#2ED18F", fillOpacity: 1, weight: 3 }).addTo(navMap);
+    updateNavBanner();
+  }, 100);
+  navWatchId = navigator.geolocation.watchPosition(pos => {
+    const here = [pos.coords.latitude, pos.coords.longitude];
+    if (navMarker) navMarker.setLatLng(here);
+    if (navMap) navMap.setView(here, 17, { animate: true });
+
+    // Cap : on privilegie celui donne par le GPS (fiable en mouvement), sinon on le
+    // deduit du deplacement entre deux positions successives (si on a assez bouge).
+    let heading = (pos.coords.heading !== null && !isNaN(pos.coords.heading)) ? pos.coords.heading : null;
+    if (heading === null && navLastPos) {
+      const moved = haversineMeters(navLastPos, here);
+      if (moved > 3) heading = bearingBetween(navLastPos, here);
+    }
+    if (heading !== null) applyMapRotation(smoothHeading(heading));
+    navLastPos = here;
+
+    // Passe a l'etape suivante des qu'on est proche du point de manoeuvre (~35m)
+    const steps = window._navSteps;
+    if (navStepIndex < steps.length - 1) {
+      const distToNext = haversineMeters(here, steps[navStepIndex + 1].location);
+      if (distToNext < 35) { navStepIndex++; updateNavBanner(); if (navigator.vibrate) navigator.vibrate(150); }
+    } else {
+      const distToEnd = haversineMeters(here, steps[steps.length - 1].location);
+      if (distToEnd < 25) { showToast("🏁 Vous etes arrive a destination"); stopNavigation(); }
+    }
+    updateNavRemaining(here);
+  }, () => {}, { enableHighAccuracy: true, maximumAge: 2000 });
+}
+function updateNavBanner() {
+  const steps = window._navSteps;
+  const cur = steps[navStepIndex];
+  const next = steps[navStepIndex + 1];
+  document.getElementById("nav-current-icon").textContent = cur.icon;
+  document.getElementById("nav-current-text").textContent = cur.text;
+  document.getElementById("nav-current-dist").textContent = cur.dist;
+  const nextBanner = document.getElementById("nav-next-banner");
+  if (next) {
+    document.getElementById("nav-next-icon").textContent = next.icon;
+    document.getElementById("nav-next-text").textContent = next.text;
+    nextBanner.classList.remove("hidden");
+  } else {
+    nextBanner.classList.add("hidden");
+  }
+}
+function updateNavRemaining(here) {
+  const steps = window._navSteps;
+  let remainingM = haversineMeters(here, steps[navStepIndex].location);
+  for (let i = navStepIndex + 1; i < steps.length; i++) remainingM += steps[i].distanceM;
+  const ratio = window._navTotalDistance ? remainingM / window._navTotalDistance : 0;
+  const remainingS = (window._navTotalDuration || 0) * ratio;
+  document.getElementById("nav-remaining-dist").textContent = remainingM >= 1000 ? (remainingM/1000).toFixed(1) + " km" : Math.round(remainingM) + " m";
+  document.getElementById("nav-remaining-time").textContent = Math.max(0, Math.round(remainingS / 60)) + " min";
+}
+function stopNavigation() {
+  if (navWatchId) { navigator.geolocation.clearWatch(navWatchId); navWatchId = null; }
+  document.getElementById("scr-navigation").classList.add("hidden");
+  if (navMap) { navMap.remove(); navMap = null; }
+  navMarker = null; navRouteLine = null;
+  navLastPos = null; navSmoothedHeading = null;
+}
+
 function drawRouteOnMap(coords, from, to) {
   clearRoute();
   if (mapProvider === "google" && gMap) {
