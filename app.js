@@ -472,6 +472,7 @@ function showMainApp() {
   document.getElementById("prevnextbar").classList.remove("hidden");
   checkBroadcast();
   checkMaintenance();
+  updateOfflineBanner();
   fbPatch("/pr_users/" + currentUser.id, { lastSeen: nowTs() });
   resumeLocationSharingIfNeeded();
   history.replaceState({ layer: "tab", screen: "map" }, "", "#map");
@@ -816,16 +817,23 @@ function applyMapRotation(heading) {
 }
 function startNavigation() {
   if (!window._navSteps || !window._navSteps.length) { showToast("Calculez d'abord un itineraire"); return; }
+  if (!navigator.geolocation) { showToast("Geolocalisation non disponible sur cet appareil"); return; }
   navStepIndex = 0;
   navLastPos = null; navSmoothedHeading = null;
+  if (navMap) { try { navMap.remove(); } catch (e) {} navMap = null; }
   document.getElementById("scr-navigation").classList.remove("hidden");
   setTimeout(() => {
-    navMap = L.map("nav-map", { zoomControl: false, attributionControl: false }).setView(window._navSteps[0].location, 17);
-    makeBaseLayers().default.addTo(navMap);
-    const coords = window._navSteps.map(s => s.location);
-    navRouteLine = L.polyline(coords, { color: "#4A3AFF", weight: 5 }).addTo(navMap);
-    navMarker = L.circleMarker(coords[0], { radius: 9, color: "#1B7A5C", fillColor: "#2ED18F", fillOpacity: 1, weight: 3 }).addTo(navMap);
-    updateNavBanner();
+    try {
+      navMap = L.map("nav-map", { zoomControl: false, attributionControl: false }).setView(window._navSteps[0].location, 17);
+      makeBaseLayers().default.addTo(navMap);
+      const coords = window._navSteps.map(s => s.location);
+      navRouteLine = L.polyline(coords, { color: "#4A3AFF", weight: 5 }).addTo(navMap);
+      navMarker = L.circleMarker(coords[0], { radius: 9, color: "#1B7A5C", fillColor: "#2ED18F", fillOpacity: 1, weight: 3 }).addTo(navMap);
+      updateNavBanner();
+      setTimeout(() => navMap && navMap.invalidateSize(), 150);
+    } catch (err) {
+      showToast("Erreur d'affichage de la navigation : " + err.message);
+    }
   }, 100);
   navWatchId = navigator.geolocation.watchPosition(pos => {
     const here = [pos.coords.latitude, pos.coords.longitude];
@@ -852,7 +860,7 @@ function startNavigation() {
       if (distToEnd < 25) { showToast("🏁 Vous etes arrive a destination"); stopNavigation(); }
     }
     updateNavRemaining(here);
-  }, () => {}, { enableHighAccuracy: true, maximumAge: 2000 });
+  }, (err) => { showToast("Position indisponible : " + err.message); }, { enableHighAccuracy: true, maximumAge: 2000 });
 }
 function updateNavBanner() {
   const steps = window._navSteps;
@@ -3031,6 +3039,20 @@ function clearBroadcast() {
     showToast("Message retire");
   });
 }
+// ------------------------------------------------------------------
+// MODE HORS-LIGNE (minimal) — l'app se recharge deja hors-ligne grace au
+// service worker (coquille + dernieres donnees en cache). On previent
+// juste clairement la personne quand elle n'a plus de reseau, et quand
+// elle le retrouve.
+// ------------------------------------------------------------------
+function updateOfflineBanner() {
+  const banner = document.getElementById("offline-banner");
+  if (!banner) return;
+  banner.classList.toggle("hidden", navigator.onLine);
+}
+window.addEventListener("online", () => { updateOfflineBanner(); showToast("✅ Connexion retrouvee"); });
+window.addEventListener("offline", () => { updateOfflineBanner(); showToast("📡 Vous etes hors ligne"); });
+
 function checkBroadcast() {
   fbGet("/pr_config/broadcast", b => {
     const banner = document.getElementById("broadcast-banner");

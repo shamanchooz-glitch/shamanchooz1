@@ -465,6 +465,10 @@ body.map-fs-lock{overflow:hidden}
       <button type="button" onclick="dismissBroadcast()" style="background:none;border:none;font-size:1rem;cursor:pointer">✕</button>
     </div>
 
+    <div id="offline-banner" class="hidden" style="margin:10px 18px;padding:10px 14px;background:#333;color:#fff;border-radius:12px;font-size:0.8rem;text-align:center">
+      📡 Hors ligne — vous voyez les dernieres donnees enregistrees sur cet appareil
+    </div>
+
     <!-- ---- MAP ---- -->
     <div id="scr-map" class="screen active map-wrap">
       <div class="map-topcard card">
@@ -759,7 +763,7 @@ body.map-fs-lock{overflow:hidden}
     <button class="btn btn-ghost hidden" id="btn-remove-status-video" onclick="removeStatusVideo()" style="margin-top:8px">✕ Retirer la video</button>
 
 <!-- ============ ENREGISTREUR VIDEO (statut, arret auto 20 Mo) ============ -->
-<div id="scr-navigation" class="hidden" style="position:fixed;inset:0;z-index:9500;display:flex;flex-direction:column">
+<div id="scr-navigation" class="hidden" style="position:fixed;inset:0;z-index:9950;display:flex;flex-direction:column">
   <div id="nav-instruction-banner" style="background:#1B7A5C;color:#fff;padding:18px 16px;display:flex;align-items:center;gap:14px">
     <div id="nav-current-icon" style="font-size:2.2rem">⬆️</div>
     <div style="flex:1">

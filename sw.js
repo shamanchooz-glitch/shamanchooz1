@@ -1,4 +1,4 @@
-const CACHE_NAME = "proche-v4";
+const CACHE_NAME = "proche-v5";
 const CORE_ASSETS = ["./index.html", "./app.js", "./manifest.json", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", (e) => {
@@ -17,13 +17,37 @@ self.addEventListener("activate", (e) => {
   self.clients.claim();
 });
 
-// IMPORTANT : reseau d'abord pour la coquille de l'app (HTML/JS), pour que
-// chaque correction publiee arrive immediatement chez les utilisateurs deja
-// installes. Le cache ne sert que de secours hors-ligne. Les donnees
-// Firebase et les tuiles de carte restent toujours en direct.
+// STRATEGIE RESEAU/CACHE (pour permettre un fonctionnement minimal hors-ligne) :
+// - Coquille de l'app (HTML/JS) : reseau d'abord, cache en secours — pour que
+//   les mises a jour arrivent vite, tout en pouvant charger l'app hors-ligne.
+// - Lectures Firebase (GET) et tuiles de carte : reseau d'abord, mais on
+//   garde une copie en cache pour pouvoir reafficher les dernieres donnees
+//   et zones de carte deja vues, meme sans connexion.
+// - Ecritures Firebase (PUT/PATCH/DELETE) : jamais mises en cache, elles
+//   doivent echouer clairement si hors-ligne (l'app le signale a la personne).
 self.addEventListener("fetch", (e) => {
   const url = e.request.url;
-  if (url.includes("firebaseio.com") || url.includes("openstreetmap.org") || url.includes("arcgisonline.com") || url.includes("opentopomap.org") || url.includes("googleapis.com")) return;
+  const isFirebaseData = url.includes("firebaseio.com");
+  const isMapTile = url.includes("openstreetmap.org") || url.includes("arcgisonline.com") || url.includes("opentopomap.org");
+  const isGoogleApi = url.includes("googleapis.com");
+
+  if (isGoogleApi) return; // toujours en direct (auth, cartes Google...)
+
+  if (isFirebaseData && e.request.method !== "GET") return; // ecritures : jamais de cache
+
+  if (isFirebaseData || isMapTile) {
+    e.respondWith(
+      fetch(e.request)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(e.request, copy)).catch(() => {});
+          return res;
+        })
+        .catch(() => caches.match(e.request))
+    );
+    return;
+  }
+
   e.respondWith(
     fetch(e.request)
       .then((res) => {
