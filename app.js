@@ -693,6 +693,7 @@ function calculateRoute() {
             location: [s.maneuver.location[1], s.maneuver.location[0]], // [lat, lon]
             distanceM: s.distance
           }));
+          window._navDestination = to;
           window._navTotalDistance = route.distance;
           window._navTotalDuration = route.duration;
           resultEl.innerHTML = `
@@ -704,7 +705,7 @@ function calculateRoute() {
                 <span>📏 ${km} km</span>
               </div>
             </div>
-            <button class="btn btn-primary" style="margin-top:10px" onclick="startNavigation()">🚀 Demarrer la navigation</button>
+            <button class="btn btn-primary" style="margin-top:10px" onclick="openGoogleMapsNavigation()">🚀 Demarrer la navigation</button>
             <div class="muted" style="font-weight:700;font-size:0.8rem;margin:12px 0 6px">🧭 Itineraire detaille (${steps.length} etapes)</div>
             <div id="route-steps-list" style="max-height:260px;overflow-y:auto">
               ${steps.map((s, i) => `<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)">
@@ -814,6 +815,15 @@ function smoothHeading(newHeading) {
 function applyMapRotation(heading) {
   const mapEl = document.getElementById("nav-map");
   if (mapEl) mapEl.style.transform = "rotate(" + (-heading) + "deg)";
+}
+// Ouvre Google Maps (l'app si elle est installee, sinon le site web) avec
+// la destination deja renseignee, pour une navigation en direct fiable —
+// Google gere lui-meme le suivi GPS, la voix, le recalcul d'itineraire...
+function openGoogleMapsNavigation() {
+  if (!window._navDestination) { showToast("Calculez d'abord un itineraire"); return; }
+  const { lat, lon } = window._navDestination;
+  const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}&travelmode=driving`;
+  window.open(url, "_blank");
 }
 function startNavigation() {
   if (!window._navSteps || !window._navSteps.length) { showToast("Calculez d'abord un itineraire"); return; }
