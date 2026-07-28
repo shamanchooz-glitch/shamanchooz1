@@ -593,13 +593,22 @@ body.map-fs-lock{overflow:hidden}
           <div style="display:flex;justify-content:space-between;font-size:0.76rem;margin-bottom:4px"><span id="gallery-used-label">0 Mo utilises</span><span id="gallery-used-max">sur 50 Mo</span></div>
           <div style="height:6px;background:var(--line);border-radius:4px;overflow:hidden"><div id="gallery-used-bar" style="height:100%;width:0%;background:var(--indigo)"></div></div>
         </div>
+        <label class="lbl" style="margin-top:0">Photo</label>
         <div class="row2">
-          <label class="btn btn-ghost" for="gallery-upload-photo">📷 Ajouter une photo</label>
-          <label class="btn btn-ghost" for="gallery-upload-video">🎥 Ajouter une video</label>
+          <label class="btn btn-ghost" for="gallery-photo-camera">📷 Prendre une photo</label>
+          <label class="btn btn-ghost" for="gallery-photo-gallery">🖼️ Galerie du telephone</label>
         </div>
-        <label class="btn btn-ghost" style="margin-top:8px" for="gallery-upload-doc">📄 Ajouter un document</label>
-        <input type="file" accept="image/*" id="gallery-upload-photo" class="hidden"/>
-        <input type="file" accept="video/*" id="gallery-upload-video" class="hidden"/>
+        <label class="lbl">Video</label>
+        <div class="row2">
+          <label class="btn btn-ghost" for="gallery-video-camera">🎥 Filmer</label>
+          <label class="btn btn-ghost" for="gallery-video-gallery">🎞️ Galerie du telephone</label>
+        </div>
+        <label class="lbl">Document</label>
+        <label class="btn btn-ghost" for="gallery-upload-doc">📄 Choisir un document</label>
+        <input type="file" accept="image/*" capture="environment" id="gallery-photo-camera" class="hidden"/>
+        <input type="file" accept="image/*" id="gallery-photo-gallery" class="hidden"/>
+        <input type="file" accept="video/*" capture="environment" id="gallery-video-camera" class="hidden"/>
+        <input type="file" accept="video/*" id="gallery-video-gallery" class="hidden"/>
         <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.txt" id="gallery-upload-doc" class="hidden"/>
         <div id="gallery-grid" style="margin-top:14px"></div>
       </div>
@@ -931,9 +940,11 @@ body.map-fs-lock{overflow:hidden}
 
     <div class="card">
       <div class="card-h">🖼️ Logo de l'application</div>
-      <div style="display:flex;align-items:center;gap:14px">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         <div class="avatar" id="admin-logo-preview" style="width:56px;height:56px;object-fit:cover"></div>
-        <label class="btn btn-ghost" style="width:auto;padding:10px 16px" for="admin-logo-input">Changer la photo</label>
+        <label class="btn btn-ghost" style="width:auto;padding:10px 16px" for="admin-logo-camera">📷 Prendre une photo</label>
+        <label class="btn btn-ghost" style="width:auto;padding:10px 16px" for="admin-logo-input">🖼️ Galerie du telephone</label>
+        <input type="file" accept="image/*" capture="environment" id="admin-logo-camera" class="hidden"/>
         <input type="file" accept="image/*" id="admin-logo-input" class="hidden"/>
       </div>
       <p class="muted" style="margin-top:8px">Cette photo s'affiche en haut a gauche pour tous les utilisateurs.</p>

@@ -2528,8 +2528,8 @@ function deleteGalleryItem(id) {
   });
 }
 document.addEventListener("change", (e) => {
-  if (e.target && e.target.id === "gallery-upload-photo" && e.target.files[0]) handleGalleryUpload(e.target.files[0], "photo");
-  if (e.target && e.target.id === "gallery-upload-video" && e.target.files[0]) handleGalleryUpload(e.target.files[0], "video");
+  if (e.target && (e.target.id === "gallery-photo-camera" || e.target.id === "gallery-photo-gallery") && e.target.files[0]) handleGalleryUpload(e.target.files[0], "photo");
+  if (e.target && (e.target.id === "gallery-video-camera" || e.target.id === "gallery-video-gallery") && e.target.files[0]) handleGalleryUpload(e.target.files[0], "video");
   if (e.target && e.target.id === "gallery-upload-doc" && e.target.files[0]) handleGalleryUpload(e.target.files[0], "document");
 });
 
@@ -3127,7 +3127,7 @@ function setAdminUserFilter(f, el) {
 }
 
 document.addEventListener("change", (e) => {
-  if (e.target && e.target.id === "admin-logo-input" && e.target.files[0]) {
+  if (e.target && (e.target.id === "admin-logo-input" || e.target.id === "admin-logo-camera") && e.target.files[0]) {
     compressImage(e.target.files[0], 500, 0.75).then(dataUrl => {
       fbSet("/pr_config/logo", dataUrl, (ok) => {
         if (!ok) { showToast("Erreur lors de l'envoi de la photo"); return; }
