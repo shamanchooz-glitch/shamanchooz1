@@ -280,12 +280,20 @@ function doRegister() {
 }
 
 function doLogin() {
-  const pseudo = gv("lg-pseudo"), mdp = gv("lg-mdp");
-  if (!pseudo || !mdp) { showToast("Remplissez tous les champs"); return; }
+  const input = gv("lg-pseudo"), mdp = gv("lg-mdp");
+  if (!input || !mdp) { showToast("Remplissez tous les champs"); return; }
   const h = hashPwd(mdp);
+  const inputLower = input.toLowerCase().trim();
+  const inputDigits = normalizePhoneForLink(input); // pour comparer les numeros sans se soucier du format (+225... ou 0...)
   fbGet("/pr_users", (all) => {
     const users = all ? Object.values(all) : [];
-    const found = users.find(u => u && (u.pseudo === pseudo || u.tel === pseudo) && u.mdpHash === h);
+    const found = users.find(u => {
+      if (!u || u.mdpHash !== h) return false;
+      const pseudoMatch = u.pseudo && u.pseudo.toLowerCase() === inputLower;
+      const nomMatch = u.nom && u.nom.toLowerCase() === inputLower;
+      const telMatch = u.tel && normalizePhoneForLink(u.tel) === inputDigits;
+      return pseudoMatch || nomMatch || telMatch;
+    });
     if (!found) { showToast("Identifiants incorrects"); return; }
     if (found.blocked) { showToast("Ce compte a ete bloque par l'administrateur"); return; }
     currentUser = found;
